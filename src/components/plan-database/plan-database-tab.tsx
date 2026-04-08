@@ -62,6 +62,21 @@ function parseNdjsonLines(buffer: string): { lines: string[]; rest: string } {
   return { lines: parts, rest };
 }
 
+function pruneUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((v) => pruneUndefined(v)) as any;
+  }
+  if (value && typeof value === "object") {
+    const out: any = {};
+    for (const [k, v] of Object.entries(value as any)) {
+      if (v === undefined) continue;
+      out[k] = pruneUndefined(v);
+    }
+    return out;
+  }
+  return value;
+}
+
 function renderingDisplaySrc(linkOrPath: string): string {
   const t = String(linkOrPath || "").trim();
   if (!t) return "";
@@ -203,17 +218,16 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
       const id = stableDocIdFromDropboxPath(folderLower);
       const now = new Date().toISOString();
       const ref = doc(firestore, "employees", dataRootId, "plan_database", id);
-      await setDocumentNonBlocking(
-        ref,
-        {
-          ...recordFromSync,
-          id,
-          dropboxFolderPath: folderLower,
-          createdAt: now,
-          updatedAt: now,
-        } satisfies PlanDatabaseRecord,
-        { merge: true },
-      );
+      const payload = pruneUndefined({
+        ...recordFromSync,
+        id,
+        dropboxFolderPath: folderLower,
+        // keep first createdAt if present; always bump updatedAt
+        createdAt: recordFromSync.createdAt || now,
+        updatedAt: now,
+      } satisfies PlanDatabaseRecord);
+
+      await setDocumentNonBlocking(ref, payload as any, { merge: true });
       return id;
     },
     [dataRootId, firestore],
