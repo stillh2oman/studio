@@ -498,7 +498,9 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
         </CardHeader>
         <CardContent className="p-0">
           <ScrollArea className="w-full">
-            <Table>
+            <div className="w-full overflow-x-auto">
+              <div className="min-w-[1550px]">
+                <Table>
               <TableHeader className="bg-muted/40 sticky top-0">
                 <TableRow>
                   <TableHead className="w-16">Thumb</TableHead>
@@ -707,7 +709,9 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
                   })
                 )}
               </TableBody>
-            </Table>
+                </Table>
+              </div>
+            </div>
           </ScrollArea>
         </CardContent>
       </Card>
