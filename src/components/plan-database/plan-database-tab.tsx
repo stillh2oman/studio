@@ -487,7 +487,7 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
         </CardContent>
       </Card>
 
-      <Card className="border-border/50 bg-card/30 overflow-hidden">
+      <Card className="border-border/50 bg-card/30 min-w-0">
         <CardHeader className="pb-2">
           <CardTitle className="text-base font-headline">
             Catalog{" "}
@@ -495,12 +495,18 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
               ({filtered.length} of {(planDatabasePlans || []).length})
             </span>
           </CardTitle>
+          <p className="text-xs text-muted-foreground font-normal pt-1">
+            Use the scrollbar below the table, trackpad two-finger scroll, or Shift + mouse wheel to scroll horizontally.
+          </p>
         </CardHeader>
-        <CardContent className="p-0">
-          <ScrollArea className="w-full">
-            <div className="w-full overflow-x-auto">
-              <div className="min-w-[1550px]">
-                <Table>
+        <CardContent className="p-0 min-w-0">
+          {/* Radix ScrollArea uses overflow:hidden and blocks horizontal scroll; native overflow handles both axes. */}
+          <div
+            className="max-h-[min(70vh,760px)] w-full min-w-0 max-w-full overflow-auto border-t border-border/40"
+            role="region"
+            aria-label="Plan catalog table"
+          >
+            <Table className="min-w-[1680px] w-max">
               <TableHeader className="bg-muted/40 sticky top-0">
                 <TableRow>
                   <TableHead className="w-16">Thumb</TableHead>
@@ -578,7 +584,7 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={16} className="text-center py-10 text-muted-foreground italic">
+                    <TableCell colSpan={18} className="text-center py-10 text-muted-foreground italic">
                       No plans found. Set a Dropbox root folder and click “Sync with Dropbox”.
                     </TableCell>
                   </TableRow>
@@ -709,10 +715,8 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
                   })
                 )}
               </TableBody>
-                </Table>
-              </div>
-            </div>
-          </ScrollArea>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 

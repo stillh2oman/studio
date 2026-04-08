@@ -572,8 +572,8 @@ function LedgerCommandCenter() {
         </div>
       </header>
 
-      <main className="max-w-[1800px] mx-auto px-6 py-10">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-10">
+      <main className="max-w-[1800px] mx-auto px-6 py-10 min-w-0 w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-10 min-w-0 w-full">
           <TabsList className="bg-card/50 border border-border/50 p-1.5 h-auto shadow-2xl rounded-2xl flex flex-wrap gap-1 items-center w-full">
             <TabsTrigger value="home" className="flex-1 min-w-[100px] h-12 rounded-xl transition-all">Home</TabsTrigger>
             <TabsTrigger value="registry" className="flex-1 min-w-[100px] h-12 rounded-xl transition-all">Databases</TabsTrigger>
@@ -591,7 +591,7 @@ function LedgerCommandCenter() {
           </TabsList>
 
           <TabsContent value="home"><HomeTab tasks={tasks} projects={filteredProjects} clients={selectableClients} billableEntries={billableEntries} calendarEvents={calendarEvents} messagesInbox={messagesInbox} messagesOutbox={messagesOutbox} onAddEvent={addCalendarEvent} onUpdateEvent={updateCalendarEvent} onDeleteEvent={deleteCalendarEvent} onSendMessage={sendMessage} onMarkRead={markMessageRead} onDeleteMessage={deleteMessage} currentEmployee={user} allEmployees={allEmployees} onUpdateStatus={updateEmployeeStatus} onViewTask={(task) => { setInitialTaskId(task.id); setActiveTab('tasks'); }} showBillingKpis={canSeeBillingTab} /></TabsContent>
-          <TabsContent value="plan_database">
+          <TabsContent value="plan_database" className="min-w-0">
             {activeTab === "plan_database" ? <PlanDatabaseTab sessionEmployeeId={user?.id || null} /> : null}
           </TabsContent>
           <TabsContent value="notes">
