@@ -179,8 +179,8 @@ export function SiteAnalysisDialog({
         <DialogHeader className="px-6 pt-6 pb-2 shrink-0">
           <DialogTitle className="font-headline text-xl pr-8">Site analysis</DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
-            Research memo from Perplexity (web-assisted). Verify all links, zones, and code editions with the
-            authority having jurisdiction before relying on this for design or permitting.
+            Research memo from Perplexity (web-assisted), including FEMA SFHA / flood-zone context and a link list
+            for GIS, parcel, and maps. Confirm flood status with the effective FIRM, survey, and AHJ before design.
           </DialogDescription>
           {address.trim() ? (
             <p className="text-xs font-mono text-white/80 mt-2 break-words">{address.trim()}</p>
