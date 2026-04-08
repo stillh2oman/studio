@@ -99,18 +99,23 @@ async function dropboxListAllFilesUnder(pathLower: string): Promise<DropboxFileR
 }
 
 async function dropboxCreateSharedLink(path: string): Promise<string | null> {
-  // Prefer create; if already exists, fall back to list_shared_links.
+  // Prefer list first (works with sharing.read). Creating requires sharing.write and may fail.
+  const listed = await callDropboxApi('https://api.dropboxapi.com/2/sharing/list_shared_links', {
+    path,
+    direct_only: true,
+  });
+  if (listed.ok) {
+    const url = listed.data?.links?.[0]?.url;
+    if (typeof url === 'string' && url.trim()) return url.trim();
+  }
+
+  // Try create (may be forbidden if token lacks sharing.write)
   const created = await callDropboxApi('https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings', {
     path,
     settings: { requested_visibility: 'public' },
   });
   if (created.ok) return String(created.data?.url || '') || null;
 
-  const listed = await callDropboxApi('https://api.dropboxapi.com/2/sharing/list_shared_links', {
-    path,
-    direct_only: true,
-  });
-  if (!listed.ok) return null;
   const url = listed.data?.links?.[0]?.url;
   return typeof url === 'string' && url.trim() ? url.trim() : null;
 }
@@ -285,101 +290,37 @@ async function runPerplexityExtraction(pageTexts: string[]) {
   return safeJsonObjectFromModel(textOut);
 }
 
-async function runPerplexityExtractionVision(pageImages: Buffer[]) {
-  const apiKey = process.env.PERPLEXITY_API_KEY?.trim();
-  if (!apiKey) throw new Error('Missing PERPLEXITY_API_KEY');
-
-  const system = [
-    'You are an expert architectural plan analyst.',
-    'You will be shown pages from a residential plan set PDF (as images).',
-    'Extract the requested fields accurately from what is explicitly shown.',
-    'If a value cannot be found explicitly on the pages provided, return null.',
-    'Do not guess.',
-    '',
-    'Return ONLY valid JSON with exactly these keys:',
-    [
-      '"project_name"',
-      '"client_name"',
-      '"designer_name"',
-      '"heated_sqft_to_frame"',
-      '"bedrooms"',
-      '"bathrooms"',
-      '"floors"',
-      '"has_basement"',
-      '"has_bonus_room"',
-      '"garage_cars"',
-      '"overall_width"',
-      '"overall_depth"',
-    ].join(', '),
-  ].join('\n');
-
-  const userContent: Array<
-    | { type: 'text'; text: string }
-    | { type: 'image_url'; image_url: { url: string } }
-  > = [{ type: 'text', text: `You will receive ${pageImages.length} page image(s) in order.` }];
-
-  for (let i = 0; i < pageImages.length; i += 1) {
-    userContent.push({ type: 'text', text: `--- Page ${i + 1} of ${pageImages.length} ---` });
-    userContent.push({ type: 'image_url', image_url: { url: toDataUriPng(pageImages[i]) } });
-  }
-
-  const body = {
-    model: 'sonar-pro',
-    temperature: 0.1,
-    disable_search: true,
-    max_tokens: 2000,
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: userContent },
-    ],
-  };
-
-  const res = await fetch('https://api.perplexity.ai/v1/sonar', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-
-  const raw = await res.text();
-  if (!res.ok) {
-    throw new Error(`Perplexity API error (${res.status}): ${raw.slice(0, 400)}`);
-  }
-  const data = JSON.parse(raw) as any;
-  const content = data?.choices?.[0]?.message?.content;
-  const textOut =
-    typeof content === 'string'
-      ? content
-      : Array.isArray(content)
-        ? content.map((c: any) => (typeof c?.text === 'string' ? c.text : '')).join('')
-        : '';
-  if (!textOut.trim()) throw new Error('Perplexity returned empty content.');
-  return safeJsonObjectFromModel(textOut);
-}
+// (legacy) vision-only extraction removed in favor of combined text+vision prompt in `extractViaVisionThenText`.
 
 function normalizeExtracted(obj: any) {
+  const toNumOrNull = (v: any): number | null => {
+    if (v == null || v === '') return null;
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    const n = Number(String(v).replace(/[^\d.\\-]/g, ''));
+    return Number.isFinite(n) ? n : null;
+  };
+  const toBoolOrNull = (v: any): boolean | null => {
+    if (v == null || v === '') return null;
+    if (typeof v === 'boolean') return v;
+    const s = String(v).trim().toLowerCase();
+    if (s === 'true' || s === 'yes' || s === 'y' || s === '1') return true;
+    if (s === 'false' || s === 'no' || s === 'n' || s === '0') return false;
+    return null;
+  };
   const out = {
     projectName: typeof obj?.project_name === 'string' ? obj.project_name : null,
     clientName: typeof obj?.client_name === 'string' ? obj.client_name : null,
     designerName: typeof obj?.designer_name === 'string' ? obj.designer_name : null,
-    heatedSqftToFrame: typeof obj?.heated_sqft_to_frame === 'number' ? obj.heated_sqft_to_frame : obj?.heated_sqft_to_frame == null ? null : Number(obj.heated_sqft_to_frame),
-    bedrooms: typeof obj?.bedrooms === 'number' ? obj.bedrooms : obj?.bedrooms == null ? null : Number(obj.bedrooms),
-    bathrooms: typeof obj?.bathrooms === 'number' ? obj.bathrooms : obj?.bathrooms == null ? null : Number(obj.bathrooms),
-    floors: typeof obj?.floors === 'number' ? obj.floors : obj?.floors == null ? null : Number(obj.floors),
-    hasBasement: typeof obj?.has_basement === 'boolean' ? obj.has_basement : obj?.has_basement == null ? null : Boolean(obj.has_basement),
-    hasBonusRoom: typeof obj?.has_bonus_room === 'boolean' ? obj.has_bonus_room : obj?.has_bonus_room == null ? null : Boolean(obj.has_bonus_room),
-    garageCars: typeof obj?.garage_cars === 'number' ? obj.garage_cars : obj?.garage_cars == null ? null : Number(obj.garage_cars),
+    heatedSqftToFrame: toNumOrNull(obj?.heated_sqft_to_frame),
+    bedrooms: toNumOrNull(obj?.bedrooms),
+    bathrooms: toNumOrNull(obj?.bathrooms),
+    floors: toNumOrNull(obj?.floors),
+    hasBasement: toBoolOrNull(obj?.has_basement),
+    hasBonusRoom: toBoolOrNull(obj?.has_bonus_room),
+    garageCars: toNumOrNull(obj?.garage_cars),
     overallWidth: typeof obj?.overall_width === 'string' ? obj.overall_width : null,
     overallDepth: typeof obj?.overall_depth === 'string' ? obj.overall_depth : null,
   };
-
-  // sanitize NaNs
-  for (const k of ['heatedSqftToFrame', 'bedrooms', 'bathrooms', 'floors', 'garageCars'] as const) {
-    const v = out[k];
-    if (typeof v === 'number' && !Number.isFinite(v)) (out as any)[k] = null;
-  }
 
   return out;
 }
@@ -393,16 +334,96 @@ function computeMissingFields(extracted: ReturnType<typeof normalizeExtracted>) 
 }
 
 async function extractViaVisionThenText(pdfBytes: Buffer): Promise<any> {
-  // Prefer vision (drawings/title blocks), fall back to text if raster is unavailable.
+  // Prefer vision (title block / cover sheet / schedules), fall back to text if raster is unavailable.
+  const extractedText = await extractPdfTextByPage(pdfBytes, 80);
+  const combinedText = extractedText.pageTexts.join('\n\n').slice(0, 120_000);
+
   let jobDir: string | undefined;
   try {
     jobDir = await createPlanReviewJobDir();
     const raster = await rasterizePdfToPngPages(pdfBytes, jobDir, {
-      maxPages: 8,
-      scale: PLAN_REVIEW_RASTER_SCALE,
+      maxPages: 12,
+      scale: Math.max(PLAN_REVIEW_RASTER_SCALE, 2.0),
     });
     if (raster.pages.length) {
-      return await runPerplexityExtractionVision(raster.pages.map((p) => p.buffer));
+      // Feed both the extracted text AND the images; the model can cross-check.
+      const apiKey = process.env.PERPLEXITY_API_KEY?.trim();
+      if (!apiKey) throw new Error('Missing PERPLEXITY_API_KEY');
+
+      const system = [
+        'You are an expert architectural plan analyst.',
+        'You will be given a residential plan set as (1) extracted PDF text and (2) page images.',
+        'Extract the requested fields accurately from what is explicitly shown.',
+        'If a value cannot be found explicitly, return null.',
+        'Do not guess.',
+        '',
+        'Return ONLY valid JSON with exactly these keys:',
+        [
+          '"project_name"',
+          '"client_name"',
+          '"designer_name"',
+          '"heated_sqft_to_frame"',
+          '"bedrooms"',
+          '"bathrooms"',
+          '"floors"',
+          '"has_basement"',
+          '"has_bonus_room"',
+          '"garage_cars"',
+          '"overall_width"',
+          '"overall_depth"',
+        ].join(', '),
+        '',
+        'Notes:',
+        '- For bedrooms: count any office/study/den that has a closet as a bedroom, but only if explicitly shown.',
+        '- For bathrooms: full=1, half=0.5, return decimal (e.g. 3.5).',
+        '- For garage_cars: if explicitly stated, use that; otherwise use door width rule if shown: <=12ft=1, >16ft=2.',
+        '- For overall_width/depth: prefer an overall dimension string like 62\'-4".',
+      ].join('\n');
+
+      const userContent: Array<
+        | { type: 'text'; text: string }
+        | { type: 'image_url'; image_url: { url: string } }
+      > = [
+        { type: 'text', text: `Extracted PDF text (may be incomplete):\n\n${combinedText}` },
+        { type: 'text', text: `Now ${raster.pages.length} plan page image(s) in order:` },
+      ];
+      for (let i = 0; i < raster.pages.length; i += 1) {
+        userContent.push({ type: 'text', text: `--- Page ${i + 1} of ${raster.pages.length} ---` });
+        userContent.push({ type: 'image_url', image_url: { url: toDataUriPng(raster.pages[i].buffer) } });
+      }
+
+      const body = {
+        model: 'sonar-pro',
+        temperature: 0.1,
+        disable_search: true,
+        max_tokens: 2200,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: userContent },
+        ],
+      };
+
+      const res = await fetch('https://api.perplexity.ai/v1/sonar', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      const raw = await res.text();
+      if (!res.ok) throw new Error(`Perplexity API error (${res.status}): ${raw.slice(0, 400)}`);
+      const data = JSON.parse(raw) as any;
+      const content = data?.choices?.[0]?.message?.content;
+      const textOut =
+        typeof content === 'string'
+          ? content
+          : Array.isArray(content)
+            ? content.map((c: any) => (typeof c?.text === 'string' ? c.text : '')).join('')
+            : '';
+      if (!textOut.trim()) throw new Error('Perplexity returned empty content.');
+      return safeJsonObjectFromModel(textOut);
     }
   } catch (e) {
     // Vision not available on some hosts (native canvas deps). We'll fall back to text.
@@ -411,7 +432,6 @@ async function extractViaVisionThenText(pdfBytes: Buffer): Promise<any> {
     await safeRmrf(jobDir);
   }
 
-  const extractedText = await extractPdfTextByPage(pdfBytes, 60);
   return await runPerplexityExtraction(extractedText.pageTexts);
 }
 
