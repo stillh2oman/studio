@@ -15,18 +15,17 @@ function encodeEvent(ev: SyncEvent): Uint8Array {
 }
 
 function isPdf(name: string) {
-  return name.toLowerCase().endsWith('.pdf');
+  return name.trim().toLowerCase().endsWith('.pdf');
 }
 
 function isRendering(name: string) {
-  const n = name.toLowerCase();
+  const n = name.trim().toLowerCase();
   return (
     n.endsWith('.jpg') ||
     n.endsWith('.jpeg') ||
     n.endsWith('.png') ||
     n.endsWith('.tiff') ||
-    n.endsWith('.bmp') ||
-    (n.endsWith('.pdf') && /(render|rendering|exterior|elevation|3d)/i.test(n))
+    n.endsWith('.bmp')
   );
 }
 
@@ -133,8 +132,8 @@ function pickLatestPlanPdf(files: Array<{ name: string; path_lower: string; serv
   const pdfs = files.filter((f) => isPdf(f.name));
   if (!pdfs.length) return null;
 
-  const planish = pdfs.filter((p) => looksLikePlanSet(p.name));
-  const candidates = planish.length ? planish : pdfs;
+  // Firm rule: ALL PDFs under the project folder are plan sets.
+  const candidates = pdfs;
 
   candidates.sort((a, b) => {
     const aMod = (a.server_modified || '') as string;
