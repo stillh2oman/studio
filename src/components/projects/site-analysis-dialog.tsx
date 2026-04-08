@@ -123,20 +123,46 @@ export function SiteAnalysisDialog({
     }
     setLoading(true);
     void (async () => {
+      const apiUrl =
+        typeof window !== "undefined"
+          ? new URL("/api/projects/site-analysis", window.location.origin).href
+          : "/api/projects/site-analysis";
+
       try {
-        const res = await fetch("/api/projects/site-analysis", {
+        const res = await fetch(apiUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ address: addr, projectName: projectName.trim() || undefined }),
         });
-        const data = (await res.json().catch(() => ({}))) as { markdown?: string; error?: string; detail?: string };
+
+        const rawText = await res.text();
+        let data: { markdown?: string; error?: string; detail?: string } = {};
+        try {
+          data = rawText ? (JSON.parse(rawText) as typeof data) : {};
+        } catch {
+          throw new Error(
+            res.ok
+              ? "Server returned non-JSON (try redeploying the latest build)."
+              : `Request failed (${res.status}): ${rawText.slice(0, 200)}`,
+          );
+        }
+
         if (!res.ok) {
           throw new Error(data.error || data.detail || `Request failed (${res.status})`);
         }
         if (!data.markdown) throw new Error("No analysis returned.");
         setMarkdown(data.markdown);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "Analysis failed.";
+        let msg = e instanceof Error ? e.message : "Analysis failed.";
+        const networkFailure =
+          e instanceof TypeError ||
+          msg === "Failed to fetch" ||
+          msg === "Load failed" ||
+          /network/i.test(msg);
+        if (networkFailure) {
+          msg =
+            "Could not reach the site analysis API (network error). Redeploy the app so this route is live; set PERPLEXITY_API_KEY on the server environment; ensure the host allows outbound HTTPS to api.perplexity.ai.";
+        }
         setError(msg);
         toast({ variant: "destructive", title: "Site analysis failed", description: msg });
       } finally {
