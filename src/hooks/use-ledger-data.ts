@@ -40,6 +40,7 @@ import {
   mergePlanReviewPromptsFromFirestore,
 } from '@/lib/plan-review/prompts';
 import type { PlanReviewPromptTemplate } from '@/lib/plan-review/types';
+import type { PlanDatabaseConfig, PlanDatabaseRecord } from '@/lib/plan-database/types';
 import { useToast } from '@/hooks/use-toast';
 import {
   archiveTimesheetPdfFromBrowser,
@@ -239,6 +240,10 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
     [firestore, dataRootId],
   );
   const integrationConfigRef = useMemoFirebase(() => dataRootId ? doc(firestore, 'employees', dataRootId, 'config', 'integrations') : null, [firestore, dataRootId]);
+  const planDatabaseConfigRef = useMemoFirebase(
+    () => (dataRootId ? doc(firestore, 'employees', dataRootId, 'config', 'plan_database') : null),
+    [firestore, dataRootId],
+  );
 
   const staffRef = useMemoFirebase(() => dataRootId ? query(collection(firestore, 'employees'), where('bossId', '==', dataRootId)) : null, [firestore, dataRootId]);
 
@@ -272,6 +277,13 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
   const { data: checklistTemplateData } = useDoc<any>(checklistTemplateRef);
   const { data: planReviewPromptsDoc } = useDoc<any>(planReviewPromptsRef);
   const { data: integrationConfigData } = useDoc<IntegrationConfig>(integrationConfigRef);
+  const { data: planDatabaseConfigData } = useDoc<PlanDatabaseConfig>(planDatabaseConfigRef);
+
+  const planDatabasePlansRef = useMemoFirebase(
+    () => (dataRootId ? collection(firestore, 'employees', dataRootId, 'plan_database') : null),
+    [firestore, dataRootId],
+  );
+  const { data: planDatabasePlansRaw } = useCollection<PlanDatabaseRecord>(planDatabasePlansRef);
 
   const checklistTemplate = useMemo(() => checklistTemplateData?.categories || DEFAULT_CHECKLIST, [checklistTemplateData]);
   const planReviewPrompts = useMemo(
@@ -279,6 +291,14 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
     [planReviewPromptsDoc],
   );
   const integrationConfig = useMemo(() => integrationConfigData || EMPTY_CONFIG, [integrationConfigData]);
+  const planDatabaseConfig = useMemo(() => {
+    const base = planDatabaseConfigData;
+    if (base?.rootFolderPath?.trim()) return base;
+    return {
+      rootFolderPath: '/Projects/Completed Plans',
+      updatedAt: new Date().toISOString(),
+    } satisfies PlanDatabaseConfig;
+  }, [planDatabaseConfigData]);
 
   const allEmployees = useMemo(() => {
     const list = [...(subordinatesRaw || [])];
@@ -971,6 +991,25 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
     activeUserId, dataRootId, isBoss, isLoaded,
     checklistTemplate,
     planReviewPrompts,
+    planDatabasePlans: planDatabasePlansRaw || [],
+    planDatabaseConfig,
+    updatePlanDatabaseConfig: (patch: Partial<PlanDatabaseConfig>) => {
+      if (!dataRootId) return;
+      const now = new Date().toISOString();
+      setDocumentNonBlocking(
+        doc(firestore, 'employees', dataRootId, 'config', 'plan_database'),
+        { ...patch, updatedAt: now },
+        { merge: true },
+      );
+    },
+    updatePlanDatabaseRecord: (id: string, patch: Partial<PlanDatabaseRecord>) => {
+      if (!dataRootId || !id) return;
+      const now = new Date().toISOString();
+      updateDocumentNonBlocking(doc(firestore, 'employees', dataRootId, 'plan_database', id), {
+        ...patch,
+        updatedAt: now,
+      });
+    },
     restoreData,
     addQuickTask: (t: Omit<QuickTask, 'id' | 'createdAt' | 'updatedAt' | 'status'> & { status?: 'Active' }) => {
       if (!dataRootId) return;

@@ -65,12 +65,13 @@ function parseAnalysisJson(raw: string): PlanReviewAnalysisJson {
           statusRaw === 'verified' || statusRaw === 'missing' || statusRaw === 'unclear' || statusRaw === 'conflict'
             ? (statusRaw as 'verified' | 'missing' | 'unclear' | 'conflict')
             : 'unclear';
+        const confidence = o.confidence === 'possible' ? ('possible' as const) : ('confirmed' as const);
         return {
           item: String(o.item || ''),
           status,
           evidence: String(o.evidence || ''),
           sheetRef: typeof o.sheetRef === 'string' ? o.sheetRef : undefined,
-          confidence: o.confidence === 'possible' ? 'possible' : 'confirmed',
+          confidence,
         };
       })
       .filter((r) => r.item.trim().length > 0);

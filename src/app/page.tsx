@@ -25,6 +25,7 @@ import { useUser, useFirestore } from '@/firebase';
 import { LoginView } from '@/components/auth/login-view';
 import { EmergencyAlertBanner } from '@/components/shared/emergency-alert-banner';
 import { ProjectMapView } from '@/components/projects/project-map-view';
+import { PlanDatabaseTab } from '@/components/plan-database/plan-database-tab';
 import { useVoiceNote } from '@/components/voice-notes/voice-note-provider';
 import { GlobalSearch } from '@/components/shared/global-search';
 import { FocusMode } from '@/components/shared/focus-mode';
@@ -576,6 +577,7 @@ function LedgerCommandCenter() {
           <TabsList className="bg-card/50 border border-border/50 p-1.5 h-auto shadow-2xl rounded-2xl flex flex-wrap gap-1 items-center w-full">
             <TabsTrigger value="home" className="flex-1 min-w-[100px] h-12 rounded-xl transition-all">Home</TabsTrigger>
             <TabsTrigger value="registry" className="flex-1 min-w-[100px] h-12 rounded-xl transition-all">Databases</TabsTrigger>
+            <TabsTrigger value="plan_database" className="flex-1 min-w-[100px] h-12 rounded-xl transition-all">Plan Database</TabsTrigger>
             <TabsTrigger value="notes" className="flex-1 min-w-[100px] h-12 rounded-xl transition-all">Notes</TabsTrigger>
             {canSeeInboxTab ? <TabsTrigger value="inbox" className="flex-1 min-w-[100px] h-12 rounded-xl transition-all">Inbox</TabsTrigger> : null}
             {canSeeBillingTab ? <TabsTrigger value="billing" className="flex-1 min-w-[100px] h-12 rounded-xl transition-all">Billing</TabsTrigger> : null}
@@ -589,6 +591,9 @@ function LedgerCommandCenter() {
           </TabsList>
 
           <TabsContent value="home"><HomeTab tasks={tasks} projects={filteredProjects} clients={selectableClients} billableEntries={billableEntries} calendarEvents={calendarEvents} messagesInbox={messagesInbox} messagesOutbox={messagesOutbox} onAddEvent={addCalendarEvent} onUpdateEvent={updateCalendarEvent} onDeleteEvent={deleteCalendarEvent} onSendMessage={sendMessage} onMarkRead={markMessageRead} onDeleteMessage={deleteMessage} currentEmployee={user} allEmployees={allEmployees} onUpdateStatus={updateEmployeeStatus} onViewTask={(task) => { setInitialTaskId(task.id); setActiveTab('tasks'); }} showBillingKpis={canSeeBillingTab} /></TabsContent>
+          <TabsContent value="plan_database">
+            {activeTab === "plan_database" ? <PlanDatabaseTab sessionEmployeeId={user?.id || null} /> : null}
+          </TabsContent>
           <TabsContent value="notes">
             <GlobalNotesTab
               projects={filteredProjects}
