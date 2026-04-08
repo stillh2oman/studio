@@ -73,7 +73,7 @@ const PERMISSION_LABELS: Record<keyof CollaboratorPermissions, string> = {
   notes: 'Project Notes',
   projects_db: 'Project Database',
   clients: 'Client Database',
-  plans: 'Plan Database',
+  plans: 'Plans',
   tasks: 'Task Management',
   profitability: 'Profitability Analytics',
   calculator: 'Toolset & Vault',
