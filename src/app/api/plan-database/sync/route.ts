@@ -338,6 +338,27 @@ async function extractViaVisionThenText(pdfBytes: Buffer): Promise<any> {
   const extractedText = await extractPdfTextByPage(pdfBytes, 80);
   const combinedText = extractedText.pageTexts.join('\n\n').slice(0, 120_000);
 
+  const mergePreferNonNull = (a: any, b: any) => {
+    const out: any = { ...(a || {}) };
+    for (const k of Object.keys(b || {})) {
+      const bv = (b || {})[k];
+      const av = (a || {})[k];
+      out[k] = (av === null || av === undefined || av === '') && bv != null && bv !== '' ? bv : av;
+    }
+    return out;
+  };
+
+  const needsTargetedPass = (obj: any) => {
+    const n = normalizeExtracted(obj);
+    const critical: Array<keyof typeof n> = ['bedrooms', 'bathrooms', 'garageCars', 'overallWidth', 'overallDepth'];
+    let missing = 0;
+    for (const k of critical) {
+      const v = (n as any)[k];
+      if (v == null || v === '') missing += 1;
+    }
+    return missing >= 3;
+  };
+
   let jobDir: string | undefined;
   try {
     jobDir = await createPlanReviewJobDir();
@@ -350,7 +371,7 @@ async function extractViaVisionThenText(pdfBytes: Buffer): Promise<any> {
       const apiKey = process.env.PERPLEXITY_API_KEY?.trim();
       if (!apiKey) throw new Error('Missing PERPLEXITY_API_KEY');
 
-      const system = [
+      const baseSystem = [
         'You are an expert architectural plan analyst.',
         'You will be given a residential plan set as (1) extracted PDF text and (2) page images.',
         'Extract the requested fields accurately from what is explicitly shown.',
@@ -380,50 +401,76 @@ async function extractViaVisionThenText(pdfBytes: Buffer): Promise<any> {
         '- For overall_width/depth: prefer an overall dimension string like 62\'-4".',
       ].join('\n');
 
-      const userContent: Array<
-        | { type: 'text'; text: string }
-        | { type: 'image_url'; image_url: { url: string } }
-      > = [
-        { type: 'text', text: `Extracted PDF text (may be incomplete):\n\n${combinedText}` },
-        { type: 'text', text: `Now ${raster.pages.length} plan page image(s) in order:` },
-      ];
-      for (let i = 0; i < raster.pages.length; i += 1) {
-        userContent.push({ type: 'text', text: `--- Page ${i + 1} of ${raster.pages.length} ---` });
-        userContent.push({ type: 'image_url', image_url: { url: toDataUriPng(raster.pages[i].buffer) } });
-      }
-
-      const body = {
-        model: 'sonar-pro',
-        temperature: 0.1,
-        disable_search: true,
-        max_tokens: 2200,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: userContent },
-        ],
+      const buildUserContent = () => {
+        const userContent: Array<
+          | { type: 'text'; text: string }
+          | { type: 'image_url'; image_url: { url: string } }
+        > = [
+          { type: 'text', text: `Extracted PDF text (may be incomplete):\n\n${combinedText}` },
+          {
+            type: 'text',
+            text:
+              'Look specifically for a "PLAN STATS" / "PROJECT DATA" / "AREA SUMMARY" box, cover sheet notes, and overall dimensions on elevations/site plan.',
+          },
+          { type: 'text', text: `Now ${raster.pages.length} plan page image(s) in order:` },
+        ];
+        for (let i = 0; i < raster.pages.length; i += 1) {
+          userContent.push({ type: 'text', text: `--- Page ${i + 1} of ${raster.pages.length} ---` });
+          userContent.push({ type: 'image_url', image_url: { url: toDataUriPng(raster.pages[i].buffer) } });
+        }
+        return userContent;
       };
 
-      const res = await fetch('https://api.perplexity.ai/v1/sonar', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      });
+      const callPerplexity = async (system: string) => {
+        const body = {
+          model: 'sonar-pro',
+          temperature: 0.1,
+          disable_search: true,
+          max_tokens: 2200,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: buildUserContent() },
+          ],
+        };
 
-      const raw = await res.text();
-      if (!res.ok) throw new Error(`Perplexity API error (${res.status}): ${raw.slice(0, 400)}`);
-      const data = JSON.parse(raw) as any;
-      const content = data?.choices?.[0]?.message?.content;
-      const textOut =
-        typeof content === 'string'
-          ? content
-          : Array.isArray(content)
-            ? content.map((c: any) => (typeof c?.text === 'string' ? c.text : '')).join('')
-            : '';
-      if (!textOut.trim()) throw new Error('Perplexity returned empty content.');
-      return safeJsonObjectFromModel(textOut);
+        const res = await fetch('https://api.perplexity.ai/v1/sonar', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
+        });
+
+        const raw = await res.text();
+        if (!res.ok) throw new Error(`Perplexity API error (${res.status}): ${raw.slice(0, 400)}`);
+        const data = JSON.parse(raw) as any;
+        const content = data?.choices?.[0]?.message?.content;
+        const textOut =
+          typeof content === 'string'
+            ? content
+            : Array.isArray(content)
+              ? content.map((c: any) => (typeof c?.text === 'string' ? c.text : '')).join('')
+              : '';
+        if (!textOut.trim()) throw new Error('Perplexity returned empty content.');
+        return safeJsonObjectFromModel(textOut);
+      };
+
+      const first = await callPerplexity(baseSystem);
+      if (!needsTargetedPass(first)) return first;
+
+      const targetedSystem = [
+        'You are an expert architectural plan analyst.',
+        'Your job is ONLY to extract these fields from the provided plan pages:',
+        '"bedrooms", "bathrooms", "garage_cars", "overall_width", "overall_depth".',
+        'Look for a PLAN STATS / PROJECT DATA / AREA SUMMARY box or cover sheet notes.',
+        'If values are not explicitly present, return null for that field.',
+        'Return ONLY valid JSON with exactly these keys:',
+        ['"bedrooms"', '"bathrooms"', '"garage_cars"', '"overall_width"', '"overall_depth"'].join(', '),
+      ].join('\n');
+
+      const second = await callPerplexity(targetedSystem);
+      return mergePreferNonNull(first, second);
     }
   } catch (e) {
     // Vision not available on some hosts (native canvas deps). We'll fall back to text.

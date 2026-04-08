@@ -14,7 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { dropboxImgSrc } from "@/lib/dropbox-utils";
 import type { PlanDatabaseRecord } from "@/lib/plan-database/types";
-import { AlertCircle, Download, RefreshCw, Search, Settings, ArrowUpDown, ImageIcon, ExternalLink, Pencil } from "lucide-react";
+import { AlertCircle, Download, RefreshCw, Search, Settings, ArrowUpDown, ImageIcon, ExternalLink, Pencil, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 type SortDir = "asc" | "desc";
@@ -367,13 +367,15 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
   };
 
   const deleteSelected = useCallback(async () => {
-    if (!dataRootId || !selected?.id) return;
-    const label = selected.projectName || selected.dropboxFolderPath || selected.id;
+    if (!dataRootId || !selected) return;
+    const docId = selected.id || stableDocIdFromDropboxPath(String(selected.dropboxFolderPath || "").toLowerCase());
+    if (!docId) return;
+    const label = selected.projectName || selected.dropboxFolderPath || docId;
     const ok = window.confirm(`Delete this plan from the catalog?\n\n${label}\n\nThis cannot be undone.`);
     if (!ok) return;
     setDeleteBusy(true);
     try {
-      await deleteDocumentNonBlocking(doc(firestore, "employees", dataRootId, "plan_database", selected.id));
+      await deleteDocumentNonBlocking(doc(firestore, "employees", dataRootId, "plan_database", docId));
       setSelected(null);
       toast({ title: "Deleted", description: "The catalog entry was removed." });
     } catch (e) {
@@ -568,6 +570,7 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
                       Last Synced <ArrowUpDown className="h-3 w-3 opacity-60" />
                     </button>
                   </TableHead>
+                  <TableHead className="w-12" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -681,6 +684,23 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
                           {r.lastSynced ? new Date(r.lastSynced).toLocaleString() : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            title="Delete catalog entry"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelected(r);
+                              // Delete from the dialog so the user sees the confirmation + context.
+                              setTimeout(() => void deleteSelected(), 0);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-muted-foreground hover:text-rose-400" />
+                          </Button>
                         </TableCell>
                       </TableRow>
                     );
@@ -865,7 +885,7 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
               type="button"
               variant="destructive"
               onClick={() => void deleteSelected()}
-              disabled={!selected?.id || deleteBusy || resyncBusy || syncBusy}
+              disabled={!selected || deleteBusy || resyncBusy || syncBusy}
               title="Delete this entry from the Plan Database"
             >
               {deleteBusy ? "Deleting…" : "Delete"}
