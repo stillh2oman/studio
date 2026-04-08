@@ -2,7 +2,7 @@ import { callDropboxApi } from '@/lib/dropbox-auth';
 import { extractPdfTextByPage } from '@/lib/plan-review/pdf-text-extract';
 import { rasterizePdfToPngPages } from '@/lib/plan-review/pdf-pages';
 import { createPlanReviewJobDir, safeRmrf } from '@/lib/plan-review/temp-workspace';
-import { PLAN_REVIEW_ENABLE_RASTER, PLAN_REVIEW_RASTER_SCALE } from '@/lib/plan-review/constants';
+import { PLAN_REVIEW_RASTER_SCALE } from '@/lib/plan-review/constants';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -23,6 +23,8 @@ function isPdf(name: string) {
 
 function isRendering(name: string) {
   const n = name.trim().toLowerCase();
+  // Firm rule: exclude 360° panorama exports (not useful as renderings here).
+  if (n.includes('360')) return false;
   return (
     n.endsWith('.jpg') ||
     n.endsWith('.jpeg') ||
@@ -390,16 +392,27 @@ function computeMissingFields(extracted: ReturnType<typeof normalizeExtracted>) 
   return missing;
 }
 
-function needsVisionFallback(missingFields: string[]) {
-  // These are frequently absent from text extraction if they’re shown graphically on cover sheets.
-  const important = new Set([
-    'bedrooms',
-    'bathrooms',
-    'garageCars',
-    'overallWidth',
-    'overallDepth',
-  ]);
-  return missingFields.some((f) => important.has(f));
+async function extractViaVisionThenText(pdfBytes: Buffer): Promise<any> {
+  // Prefer vision (drawings/title blocks), fall back to text if raster is unavailable.
+  let jobDir: string | undefined;
+  try {
+    jobDir = await createPlanReviewJobDir();
+    const raster = await rasterizePdfToPngPages(pdfBytes, jobDir, {
+      maxPages: 8,
+      scale: PLAN_REVIEW_RASTER_SCALE,
+    });
+    if (raster.pages.length) {
+      return await runPerplexityExtractionVision(raster.pages.map((p) => p.buffer));
+    }
+  } catch (e) {
+    // Vision not available on some hosts (native canvas deps). We'll fall back to text.
+    console.warn('[plan-database] vision extraction unavailable; falling back to text', e);
+  } finally {
+    await safeRmrf(jobDir);
+  }
+
+  const extractedText = await extractPdfTextByPage(pdfBytes, 60);
+  return await runPerplexityExtraction(extractedText.pageTexts);
 }
 
 export async function POST(req: Request) {
@@ -515,27 +528,7 @@ export async function POST(req: Request) {
             let extractionError: string | null = null;
             try {
               const pdfBytes = await fetchBytes(tmpLink);
-              // Try text first (fast), then vision fallback for commonly-missed graphic fields.
-              const extractedText = await extractPdfTextByPage(pdfBytes, 40);
-              extracted = await runPerplexityExtraction(extractedText.pageTexts);
-
-              const normalizedMaybe = extracted ? normalizeExtracted(extracted) : null;
-              const missingMaybe = normalizedMaybe ? computeMissingFields(normalizedMaybe) : [];
-              if (PLAN_REVIEW_ENABLE_RASTER && needsVisionFallback(missingMaybe)) {
-                let jobDir: string | undefined;
-                try {
-                  jobDir = await createPlanReviewJobDir();
-                  const raster = await rasterizePdfToPngPages(pdfBytes, jobDir, {
-                    maxPages: 6,
-                    scale: PLAN_REVIEW_RASTER_SCALE,
-                  });
-                  if (raster.pages.length) {
-                    extracted = await runPerplexityExtractionVision(raster.pages.map((p) => p.buffer));
-                  }
-                } finally {
-                  await safeRmrf(jobDir);
-                }
-              }
+              extracted = await extractViaVisionThenText(pdfBytes);
             } catch (e) {
               extractionError = e instanceof Error ? e.message : 'Extraction failed.';
             }
@@ -673,26 +666,7 @@ export async function POST(req: Request) {
             let extractionError: string | null = null;
             try {
               const pdfBytes = await fetchBytes(tmpLink);
-              const extractedText = await extractPdfTextByPage(pdfBytes, 40);
-              extracted = await runPerplexityExtraction(extractedText.pageTexts);
-
-              const normalizedMaybe = extracted ? normalizeExtracted(extracted) : null;
-              const missingMaybe = normalizedMaybe ? computeMissingFields(normalizedMaybe) : [];
-              if (PLAN_REVIEW_ENABLE_RASTER && needsVisionFallback(missingMaybe)) {
-                let jobDir: string | undefined;
-                try {
-                  jobDir = await createPlanReviewJobDir();
-                  const raster = await rasterizePdfToPngPages(pdfBytes, jobDir, {
-                    maxPages: 6,
-                    scale: PLAN_REVIEW_RASTER_SCALE,
-                  });
-                  if (raster.pages.length) {
-                    extracted = await runPerplexityExtractionVision(raster.pages.map((p) => p.buffer));
-                  }
-                } finally {
-                  await safeRmrf(jobDir);
-                }
-              }
+              extracted = await extractViaVisionThenText(pdfBytes);
             } catch (e) {
               extractionError = e instanceof Error ? e.message : 'Extraction failed.';
             }
