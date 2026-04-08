@@ -25,7 +25,6 @@ import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
-import { RequestMeetingDialog } from '@/components/scheduling/request-meeting-dialog';
 import { sendEmail } from '@/services/resend-service';
 
 export default function PlanPortViewer({ params }: { params: Promise<{ code: string }> }) {
@@ -45,7 +44,6 @@ export default function PlanPortViewer({ params }: { params: Promise<{ code: str
   const [isDownloading, setIsDownloading] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [isMeetingOpen, setIsMeetingOpen] = useState(false);
   const [isMessageOpen, setIsMessageOpen] = useState(false);
   const [messageEmail, setMessageEmail] = useState('');
   const [messageText, setMessageText] = useState('');
@@ -267,15 +265,6 @@ export default function PlanPortViewer({ params }: { params: Promise<{ code: str
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {identity?.firmId ? (
-              <Button
-                className="h-9 px-4 text-[10px] font-black uppercase gap-2 bg-primary hover:bg-primary/90"
-                onClick={() => setIsMeetingOpen(true)}
-                title="Request a meeting with your designer"
-              >
-                <Clock className="h-3.5 w-3.5" /> Request a Meeting
-              </Button>
-            ) : null}
             <Button
               variant="outline"
               className="h-9 px-4 text-[10px] font-black uppercase gap-2 border-white/10 hover:bg-white/5"
@@ -349,9 +338,6 @@ export default function PlanPortViewer({ params }: { params: Promise<{ code: str
                         <Button variant="outline" className="gap-2" onClick={openMessageDesigner}>
                           <Mail className="h-4 w-4" /> Message Designer
                         </Button>
-                        <Button className="gap-2" onClick={() => setIsMeetingOpen(true)}>
-                          <Clock className="h-4 w-4" /> Request a Meeting
-                        </Button>
                       </div>
                     ) : null}
                   </div>
@@ -421,9 +407,6 @@ export default function PlanPortViewer({ params }: { params: Promise<{ code: str
                       <div className="flex gap-2">
                         <Button variant="outline" className="h-11 gap-2" onClick={openMessageDesigner}>
                           <Mail className="h-4 w-4" /> Message Designer
-                        </Button>
-                        <Button className="h-11 gap-2" onClick={() => setIsMeetingOpen(true)}>
-                          <Clock className="h-4 w-4" /> Request a Meeting
                         </Button>
                       </div>
                     ) : null}
@@ -556,18 +539,6 @@ export default function PlanPortViewer({ params }: { params: Promise<{ code: str
           </div>
         </div>
       </main>
-
-      {identity?.firmId ? (
-        <RequestMeetingDialog
-          open={isMeetingOpen}
-          onOpenChange={setIsMeetingOpen}
-          firmId={identity.firmId}
-          accountId={identity.accountId}
-          accountName={identity.name}
-          projectId={activeProject?.id}
-          projectName={activeProject?.name}
-        />
-      ) : null}
 
       <Dialog open={isMessageOpen} onOpenChange={setIsMessageOpen}>
         <DialogContent className="sm:max-w-[600px] bg-[#1a1c1e] text-white border-white/10">
