@@ -219,8 +219,16 @@ export async function POST(req: Request) {
     return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400 });
   }
 
-  const rootFolderPath = String(payload?.rootFolderPath || '').trim();
-  const singleProjectFolderPath = String(payload?.projectFolderPath || '').trim() || null;
+  const normalizeDropboxPath = (p: string) => {
+    const t = String(p || '').trim();
+    if (!t) return '';
+    if (t === '/') return '';
+    return t.startsWith('/') ? t : `/${t}`;
+  };
+
+  const rootFolderPath = normalizeDropboxPath(payload?.rootFolderPath);
+  const singleProjectFolderPathRaw = String(payload?.projectFolderPath || '').trim();
+  const singleProjectFolderPath = singleProjectFolderPathRaw ? normalizeDropboxPath(singleProjectFolderPathRaw) : null;
   const maxProjects = Number(payload?.maxProjects || 0) > 0 ? Number(payload.maxProjects) : 0;
   const skipIfPdfRevMatches = typeof payload?.skipIfPdfRevMatches === 'object' && payload.skipIfPdfRevMatches
     ? (payload.skipIfPdfRevMatches as Record<string, string>)
@@ -244,6 +252,10 @@ export async function POST(req: Request) {
           } else {
             const root = await dropboxListFolder(rootFolderPath, false);
             if (!root.ok) {
+              const errSummary = typeof root.data?.error_summary === 'string' ? root.data.error_summary : '';
+              if (errSummary.includes('path/not_found')) {
+                throw new Error(`Dropbox folder not found: "${rootFolderPath}". Check the configured root folder path.`);
+              }
               const pretty =
                 typeof root.data?.error === 'string'
                   ? root.data.error

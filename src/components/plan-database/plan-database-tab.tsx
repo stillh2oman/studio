@@ -62,6 +62,13 @@ function parseNdjsonLines(buffer: string): { lines: string[]; rest: string } {
   return { lines: parts, rest };
 }
 
+function normalizeDropboxPathInput(raw: string): string {
+  const t = String(raw || "").trim();
+  if (!t) return "";
+  if (t === "/") return "";
+  return t.startsWith("/") ? t : `/${t}`;
+}
+
 function normalizeRecordFromSync(raw: any): PlanDatabaseRecord {
   return {
     id: "",
@@ -217,8 +224,8 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
       abortRef.current = new AbortController();
 
       const body = {
-        rootFolderPath: folderPathDraft.trim(),
-        projectFolderPath: opts?.projectFolderPath,
+        rootFolderPath: normalizeDropboxPathInput(folderPathDraft),
+        projectFolderPath: opts?.projectFolderPath ? normalizeDropboxPathInput(opts.projectFolderPath) : undefined,
         skipIfPdfRevMatches: opts?.projectFolderPath ? {} : skipMap,
       };
 
@@ -391,14 +398,18 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
                 <Input
                   value={folderPathDraft}
                   onChange={(e) => setFolderPathDraft(e.target.value)}
-                  onBlur={() => updatePlanDatabaseConfig({ rootFolderPath: folderPathDraft.trim() })}
+                  onBlur={() =>
+                    updatePlanDatabaseConfig({ rootFolderPath: normalizeDropboxPathInput(folderPathDraft) })
+                  }
                   placeholder="/Projects/Completed Plans"
                 />
                 <Button
                   type="button"
                   variant="outline"
                   className="gap-2"
-                  onClick={() => updatePlanDatabaseConfig({ rootFolderPath: folderPathDraft.trim() })}
+                  onClick={() =>
+                    updatePlanDatabaseConfig({ rootFolderPath: normalizeDropboxPathInput(folderPathDraft) })
+                  }
                   disabled={!folderPathDraft.trim()}
                   title="Save"
                 >
