@@ -1,0 +1,149 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Designer's Ledger command-center parity: ~#121212 canvas, ~#1b1b1b cards, white type,
+ * hairline borders, almost no shadow. Red / yellow only as deliberate accents (CSS vars).
+ */
+@layer base {
+  :root {
+    --background: 0 0% 7%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 11%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 11%;
+    --popover-foreground: 0 0% 98%;
+    /* Default solid actions: light on dark (inverse pill) */
+    --primary: 0 0% 96%;
+    --primary-foreground: 0 0% 7%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 98%;
+    /* Dark fills only — never light gray panels */
+    --muted: 0 0% 13%;
+    --muted-foreground: 0 0% 76%;
+    /* Semantic: use sparingly in UI */
+    --accent: 356 78% 52%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 68% 48%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 19%;
+    --input: 0 0% 16%;
+    --ring: 0 0% 45%;
+    --radius: 0.5rem;
+    --ink: 0 0% 5%;
+    --ink-foreground: 0 0% 98%;
+    /* Ledger accent text (use with text-ledger-red / text-ledger-yellow) */
+    --ledger-red: 356 78% 58%;
+    --ledger-yellow: 48 96% 58%;
+  }
+
+  .dark {
+    --background: 0 0% 6%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 10%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 95%;
+    --primary-foreground: 0 0% 6%;
+    --secondary: 0 0% 13%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 72%;
+    --accent: 356 76% 50%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62% 46%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 17%;
+    --input: 0 0% 14%;
+    --ring: 0 0% 42%;
+    --ink: 0 0% 4%;
+    --ink-foreground: 0 0% 98%;
+    --ledger-red: 356 76% 56%;
+    --ledger-yellow: 46 94% 56%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body antialiased min-h-screen;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-body font-bold tracking-wide uppercase text-foreground;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer utilities {
+  .planport-surface-glass {
+    @apply bg-card border border-border shadow-none;
+  }
+
+  .text-ledger-red {
+    color: hsl(var(--ledger-red));
+  }
+
+  .text-ledger-yellow {
+    color: hsl(var(--ledger-yellow));
+  }
+
+  .border-ledger-red {
+    border-color: hsl(var(--ledger-red) / 0.55);
+  }
+
+  .border-ledger-yellow {
+    border-color: hsl(var(--ledger-yellow) / 0.5);
+  }
+}
+
+/* PDF Viewer Read-Only Protections */
+.pdf-viewer-container {
+  position: relative;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.pdf-security-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  background: transparent;
+  pointer-events: auto;
+}
+
+.pdf-toolbar-blocker {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 100%;
+  height: 60px;
+  z-index: 30;
+  background: transparent;
+}

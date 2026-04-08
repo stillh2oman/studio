@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /**
+     * DESIGNER'S INK SECURITY POLICY
+     * 
+     * Hierarchical Data Model:
+     * Most data is stored under /employees/{userId}/...
+     * 
+     * Authentication:
+     * Users must be signed in to access any firm data.
+     */
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Root employees collection (Profiles and Root for Ledger)
+    match /employees/{empId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+
+      // Flexible sub-collection matching for ledger data
+      // (Projects, Clients, Billing, Prints, Tasks, Supplies, etc.)
+      match /{collectionName}/{docId} {
+        allow read, write: if isSignedIn();
+      }
+
+      // Deeper sub-collections (Notes, Comments, etc.)
+      match /{collectionName}/{docId}/{subColl}/{subDoc} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    // Support for potential double-nested paths seen in some SDK logs
+    match /employees/employees/{empId}/{allPaths=**} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Support legacy /users/ path matches for backend configuration compatibility
+    match /users/{userId}/{allPaths=**} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Global Roles and Settings
+    match /roles_admin/{userId} {
+      allow get: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /firm_shortlinks/{code} {
+      allow get: if true;
+      allow write: if isSignedIn();
+    }
+
+    /**
+     * Canonical merged clients & projects (firm-wide, same auth model as employees/* for v1).
+     * Tighten with custom claims / firm membership before exposing portal users to this database.
+     */
+    match /clients/{clientId} {
+      allow read, write: if isSignedIn();
+    }
+    match /projects/{projectId} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

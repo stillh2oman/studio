@@ -1,0 +1,37 @@
+query ListAllCustomers @auth(level: USER, insecureReason: "This operation is safe to expose to all logged in users.") {
+  customers {
+    id
+    name
+    email
+  }
+}
+
+mutation CreateNewProduct($name: String!, $description: String, $price: Float!) @auth(expr: "auth.token.admin == true") {
+  product_insert(data: {
+    name: $name,
+    description: $description,
+    price: $price
+  })
+}
+
+query GetMyOrders @auth(level: USER) {
+  orders(where: {customerUid: {eq_expr: "auth.uid"}}) {
+    id
+    totalAmount
+    status
+    createdAt
+    items {
+      product {
+        name
+      }
+      quantity
+      priceAtPurchase
+    }
+  }
+}
+
+mutation UpdateCustomerEmail($customerId: ID!, $newEmail: String!) @auth(level: USER) {
+  customer_update(key: {id: $customerId}, data: {
+    email: $newEmail
+  })
+}

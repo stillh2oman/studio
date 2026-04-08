@@ -1,0 +1,10 @@
+{
+  "placeholderImages": [
+    {
+      "id": "app-logo",
+      "description": "Designer's Ink Official Logo",
+      "imageUrl": "/logo.png",
+      "imageHint": "company logo"
+    }
+  ]
+}

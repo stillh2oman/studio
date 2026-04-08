@@ -1,0 +1,169 @@
+
+{
+  "entities": {
+    "Client": {
+      "title": "Client",
+      "type": "object",
+      "description": "Represents a client with whom projects are undertaken.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" }
+      },
+      "required": ["id", "name"]
+    },
+    "Project": {
+      "title": "Project",
+      "type": "object",
+      "description": "Represents a project undertaken for a specific client.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "clientId": { "type": "string" },
+        "status": { "type": "string" },
+        "address": { "type": "string" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "constructionCompany": { "type": "string" },
+        "hourlyRate": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "clientId"]
+    },
+    "Task": {
+      "title": "Task",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "assignedTo": { "type": "string" },
+        "priority": { "type": "string" },
+        "status": { "type": "string" },
+        "deadline": { "type": "string" },
+        "estimatedHours": { "type": "number" }
+      }
+    },
+    "BillableEntry": {
+      "title": "BillableEntry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "hours": { "type": "number" },
+        "rate": { "type": "number" },
+        "total": { "type": "number" },
+        "status": { "type": "string" },
+        "date": { "type": "string" }
+      }
+    },
+    "Employee": {
+      "title": "Employee",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "role": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "bossId": { "type": "string" }
+      }
+    },
+    "Contractor": {
+      "title": "Contractor",
+      "type": "object",
+      "description": "Represents a builder or construction firm.",
+      "properties": {
+        "id": { "type": "string" },
+        "companyName": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "billingEmail": { "type": "string", "format": "email" },
+        "contacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "title": { "type": "string" },
+              "email": { "type": "string" },
+              "phone": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "auth": {
+    "providers": ["password", "anonymous"]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/employees/{userId}",
+        "definition": {
+          "entityName": "Employee",
+          "schema": { "$ref": "#/backend/entities/Employee" },
+          "description": "Primary firm staff records."
+        }
+      },
+      {
+        "path": "/employees/{userId}/clients/{clientId}",
+        "definition": {
+          "entityName": "Client",
+          "schema": { "$ref": "#/backend/entities/Client" },
+          "description": "Client database."
+        }
+      },
+      {
+        "path": "/employees/{userId}/contractors/{contractorId}",
+        "definition": {
+          "entityName": "Contractor",
+          "schema": { "$ref": "#/backend/entities/Contractor" },
+          "description": "Contractor and builder database."
+        }
+      },
+      {
+        "path": "/employees/{userId}/projects/{projectId}",
+        "definition": {
+          "entityName": "Project",
+          "schema": { "$ref": "#/backend/entities/Project" },
+          "description": "Project registry."
+        }
+      },
+      {
+        "path": "/employees/{userId}/tasks/{taskId}",
+        "definition": {
+          "entityName": "Task",
+          "schema": { "$ref": "#/backend/entities/Task" },
+          "description": "Task management."
+        }
+      },
+      {
+        "path": "/employees/{userId}/billable_hour_entries/{entryId}",
+        "definition": {
+          "entityName": "BillableEntry",
+          "schema": { "$ref": "#/backend/entities/BillableEntry" },
+          "description": "Professional services log."
+        }
+      },
+      {
+        "path": "/employees/{userId}/print_job_entries/{entryId}",
+        "definition": {
+          "entityName": "PrintEntry",
+          "schema": { "type": "object" },
+          "description": "Production log."
+        }
+      },
+      {
+        "path": "/employees/{userId}/projects/{projectId}/notes/{noteId}",
+        "definition": {
+          "entityName": "ProjectNote",
+          "schema": { "type": "object" },
+          "description": "Activity log."
+        }
+      }
+    ]
+  }
+}

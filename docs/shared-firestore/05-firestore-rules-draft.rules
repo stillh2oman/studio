@@ -1,0 +1,64 @@
+// DRAFT — not wired to firebase.json. Review with your Console rules before deploy.
+// Assumes: single Firebase project; custom claims OR path-based rules for staff vs portal.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Example: staff custom claim set by Admin SDK after login sync
+    function isStaff() {
+      return isSignedIn() && request.auth.token.staff == true;
+    }
+
+    function isPortalAnon() {
+      return isSignedIn() && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+
+    // ---- Existing Ledger paths (keep your current rules; shown as placeholder) ----
+    match /employees/{empId} {
+      allow read, write: if isStaff(); // tighten per your model
+      match /{sub=**} {
+        allow read, write: if isStaff();
+      }
+    }
+
+    // ---- Canonical shared data ----
+    match /shared_clients/{clientId} {
+      // Staff: full access
+      allow read, write: if isStaff();
+      // Portal: read-only own hub — REQUIRES mapping claim hubId -> request.auth.uid session
+      // Practical approach: set custom claim portalHubId after access-code login, or use Cloud Function proxy.
+      allow read: if isPortalAnon() && resource.data.planportHubId == request.auth.token.portalHubId;
+      allow write: if false;
+    }
+
+    match /shared_projects/{projectId} {
+      allow read, write: if isStaff();
+      allow read: if isPortalAnon() && resource.data.planportVisible == true
+        && resource.data.planportHubId == request.auth.token.portalHubId;
+      allow write: if false;
+    }
+
+    // PlanPort hub trees: keep existing portal rules; tighten so hub doc id matches token
+    match /individualClients/{hubId}/{document=**} {
+      allow read: if isSignedIn(); // replace with hub-scoped check
+    }
+    match /generalContractors/{hubId}/{document=**} {
+      allow read: if isSignedIn();
+    }
+  }
+}
+
+/*
+  Phase 5 notes:
+  - Anonymous portal users cannot be distinguished by hub from rules alone unless you set
+    custom claims (e.g. after server verifies accessCode) or use Firestore Security Rules
+    with a per-user doc that lists allowed hubIds.
+  - Lowest-risk near-term: keep portal reads on `individualClients/...` paths as today;
+    use `shared_*` only from server (Admin SDK) or staff clients until claims strategy is defined.
+  - List open questions with your Firebase admin.
+*/

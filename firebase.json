@@ -1,0 +1,17 @@
+{
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "hosting": {
+    "source": ".",
+    "site": "designers-ledger-3-00660-9e684",
+    "frameworksBackend": {
+      "region": "us-central1",
+      "memory": "2GiB",
+      "cpu": 2,
+      "timeoutSeconds": 300,
+      "concurrency": 16,
+      "invoker": "public"
+    }
+  }
+}
