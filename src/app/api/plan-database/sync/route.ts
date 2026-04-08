@@ -1,5 +1,8 @@
 import { callDropboxApi } from '@/lib/dropbox-auth';
 import { extractPdfTextByPage } from '@/lib/plan-review/pdf-text-extract';
+import { rasterizePdfToPngPages } from '@/lib/plan-review/pdf-pages';
+import { createPlanReviewJobDir, safeRmrf } from '@/lib/plan-review/temp-workspace';
+import { PLAN_REVIEW_ENABLE_RASTER, PLAN_REVIEW_RASTER_SCALE } from '@/lib/plan-review/constants';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -126,6 +129,10 @@ async function fetchBytes(url: string): Promise<Buffer> {
   if (!res.ok) throw new Error(`Download failed (${res.status})`);
   const ab = await res.arrayBuffer();
   return Buffer.from(ab);
+}
+
+function toDataUriPng(buffer: Buffer): string {
+  return `data:image/png;base64,${buffer.toString('base64')}`;
 }
 
 function pickLatestPlanPdf(files: Array<{ name: string; path_lower: string; server_modified?: string; size?: number; rev?: string }>) {
@@ -276,6 +283,80 @@ async function runPerplexityExtraction(pageTexts: string[]) {
   return safeJsonObjectFromModel(textOut);
 }
 
+async function runPerplexityExtractionVision(pageImages: Buffer[]) {
+  const apiKey = process.env.PERPLEXITY_API_KEY?.trim();
+  if (!apiKey) throw new Error('Missing PERPLEXITY_API_KEY');
+
+  const system = [
+    'You are an expert architectural plan analyst.',
+    'You will be shown pages from a residential plan set PDF (as images).',
+    'Extract the requested fields accurately from what is explicitly shown.',
+    'If a value cannot be found explicitly on the pages provided, return null.',
+    'Do not guess.',
+    '',
+    'Return ONLY valid JSON with exactly these keys:',
+    [
+      '"project_name"',
+      '"client_name"',
+      '"designer_name"',
+      '"heated_sqft_to_frame"',
+      '"bedrooms"',
+      '"bathrooms"',
+      '"floors"',
+      '"has_basement"',
+      '"has_bonus_room"',
+      '"garage_cars"',
+      '"overall_width"',
+      '"overall_depth"',
+    ].join(', '),
+  ].join('\n');
+
+  const userContent: Array<
+    | { type: 'text'; text: string }
+    | { type: 'image_url'; image_url: { url: string } }
+  > = [{ type: 'text', text: `You will receive ${pageImages.length} page image(s) in order.` }];
+
+  for (let i = 0; i < pageImages.length; i += 1) {
+    userContent.push({ type: 'text', text: `--- Page ${i + 1} of ${pageImages.length} ---` });
+    userContent.push({ type: 'image_url', image_url: { url: toDataUriPng(pageImages[i]) } });
+  }
+
+  const body = {
+    model: 'sonar-pro',
+    temperature: 0.1,
+    disable_search: true,
+    max_tokens: 2000,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: userContent },
+    ],
+  };
+
+  const res = await fetch('https://api.perplexity.ai/v1/sonar', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  const raw = await res.text();
+  if (!res.ok) {
+    throw new Error(`Perplexity API error (${res.status}): ${raw.slice(0, 400)}`);
+  }
+  const data = JSON.parse(raw) as any;
+  const content = data?.choices?.[0]?.message?.content;
+  const textOut =
+    typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content.map((c: any) => (typeof c?.text === 'string' ? c.text : '')).join('')
+        : '';
+  if (!textOut.trim()) throw new Error('Perplexity returned empty content.');
+  return safeJsonObjectFromModel(textOut);
+}
+
 function normalizeExtracted(obj: any) {
   const out = {
     projectName: typeof obj?.project_name === 'string' ? obj.project_name : null,
@@ -307,6 +388,18 @@ function computeMissingFields(extracted: ReturnType<typeof normalizeExtracted>) 
     if (v === null || v === undefined || v === '') missing.push(k);
   }
   return missing;
+}
+
+function needsVisionFallback(missingFields: string[]) {
+  // These are frequently absent from text extraction if they’re shown graphically on cover sheets.
+  const important = new Set([
+    'bedrooms',
+    'bathrooms',
+    'garageCars',
+    'overallWidth',
+    'overallDepth',
+  ]);
+  return missingFields.some((f) => important.has(f));
 }
 
 export async function POST(req: Request) {
@@ -422,8 +515,27 @@ export async function POST(req: Request) {
             let extractionError: string | null = null;
             try {
               const pdfBytes = await fetchBytes(tmpLink);
-              const extractedText = await extractPdfTextByPage(pdfBytes, 16);
+              // Try text first (fast), then vision fallback for commonly-missed graphic fields.
+              const extractedText = await extractPdfTextByPage(pdfBytes, 40);
               extracted = await runPerplexityExtraction(extractedText.pageTexts);
+
+              const normalizedMaybe = extracted ? normalizeExtracted(extracted) : null;
+              const missingMaybe = normalizedMaybe ? computeMissingFields(normalizedMaybe) : [];
+              if (PLAN_REVIEW_ENABLE_RASTER && needsVisionFallback(missingMaybe)) {
+                let jobDir: string | undefined;
+                try {
+                  jobDir = await createPlanReviewJobDir();
+                  const raster = await rasterizePdfToPngPages(pdfBytes, jobDir, {
+                    maxPages: 6,
+                    scale: PLAN_REVIEW_RASTER_SCALE,
+                  });
+                  if (raster.pages.length) {
+                    extracted = await runPerplexityExtractionVision(raster.pages.map((p) => p.buffer));
+                  }
+                } finally {
+                  await safeRmrf(jobDir);
+                }
+              }
             } catch (e) {
               extractionError = e instanceof Error ? e.message : 'Extraction failed.';
             }
@@ -561,8 +673,26 @@ export async function POST(req: Request) {
             let extractionError: string | null = null;
             try {
               const pdfBytes = await fetchBytes(tmpLink);
-              const extractedText = await extractPdfTextByPage(pdfBytes, 16);
+              const extractedText = await extractPdfTextByPage(pdfBytes, 40);
               extracted = await runPerplexityExtraction(extractedText.pageTexts);
+
+              const normalizedMaybe = extracted ? normalizeExtracted(extracted) : null;
+              const missingMaybe = normalizedMaybe ? computeMissingFields(normalizedMaybe) : [];
+              if (PLAN_REVIEW_ENABLE_RASTER && needsVisionFallback(missingMaybe)) {
+                let jobDir: string | undefined;
+                try {
+                  jobDir = await createPlanReviewJobDir();
+                  const raster = await rasterizePdfToPngPages(pdfBytes, jobDir, {
+                    maxPages: 6,
+                    scale: PLAN_REVIEW_RASTER_SCALE,
+                  });
+                  if (raster.pages.length) {
+                    extracted = await runPerplexityExtractionVision(raster.pages.map((p) => p.buffer));
+                  }
+                } finally {
+                  await safeRmrf(jobDir);
+                }
+              }
             } catch (e) {
               extractionError = e instanceof Error ? e.message : 'Extraction failed.';
             }

@@ -542,6 +542,7 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
                     </button>
                   </TableHead>
                   <TableHead className="w-32">Renderings</TableHead>
+                  <TableHead className="w-24">Plan PDF</TableHead>
                   <TableHead className="w-28">Dropbox</TableHead>
                   <TableHead className="w-36">
                     <button className="flex items-center gap-1 font-bold" onClick={() => toggleSort("lastSynced")}>
@@ -618,6 +619,24 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
                               }}
                             >
                               View ({r.renderingLinks.length})
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {r.planPdfPath ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const url = `/api/dropbox/proxy-download?path=${encodeURIComponent(r.planPdfPath!)}&name=${encodeURIComponent((r.projectName || "plan") + ".pdf")}`;
+                                window.open(url, "_blank", "noopener,noreferrer");
+                              }}
+                            >
+                              Open
                             </Button>
                           ) : (
                             <span className="text-xs text-muted-foreground">—</span>
@@ -783,6 +802,19 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
                 </Card>
 
                 <div className="flex flex-wrap gap-2">
+                  {selected.planPdfPath ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="gap-2"
+                      onClick={() => {
+                        const url = `/api/dropbox/proxy-download?path=${encodeURIComponent(selected.planPdfPath!)}&name=${encodeURIComponent((selected.projectName || "plan") + ".pdf")}`;
+                        window.open(url, "_blank", "noopener,noreferrer");
+                      }}
+                    >
+                      Open plan PDF <ExternalLink className="h-4 w-4" />
+                    </Button>
+                  ) : null}
                   {selected.dropboxFolderLink ? (
                     <Button
                       type="button"
