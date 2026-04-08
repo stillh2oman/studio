@@ -244,7 +244,13 @@ export async function POST(req: Request) {
           } else {
             const root = await dropboxListFolder(rootFolderPath, false);
             if (!root.ok) {
-              throw new Error(typeof root.data?.error === 'string' ? root.data.error : JSON.stringify(root.data).slice(0, 200));
+              const pretty =
+                typeof root.data?.error === 'string'
+                  ? root.data.error
+                  : typeof root.data?.hint === 'string'
+                    ? `${root.data?.error || 'Dropbox error'} — ${root.data.hint}`
+                    : JSON.stringify(root.data).slice(0, 600);
+              throw new Error(pretty);
             }
             const entries = Array.isArray(root.data?.entries) ? root.data.entries : [];
             for (const e of entries) {
@@ -273,7 +279,21 @@ export async function POST(req: Request) {
             const files: Array<any> = [];
             const first = await dropboxListFolder(f.path_lower, true);
             if (!first.ok) {
-              send({ type: 'record', record: { dropboxFolderPath: f.path_lower, dropboxFolderLink: null, needsReview: true, extractionError: `Dropbox list failed: ${JSON.stringify(first.data).slice(0, 240)}` } });
+              const msg =
+                typeof first.data?.error === 'string'
+                  ? first.data.error
+                  : typeof first.data?.hint === 'string'
+                    ? `${first.data?.error || 'Dropbox error'} — ${first.data.hint}`
+                    : JSON.stringify(first.data).slice(0, 600);
+              send({
+                type: 'record',
+                record: {
+                  dropboxFolderPath: f.path_lower,
+                  dropboxFolderLink: null,
+                  needsReview: true,
+                  extractionError: `Dropbox list failed: ${msg}`,
+                },
+              });
               processed += 1;
               continue;
             }

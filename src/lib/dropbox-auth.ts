@@ -118,13 +118,6 @@ export async function callDropboxApi(
   payload: Record<string, unknown>,
 ): Promise<DropboxApiResult> {
   const configuredToken = String(process.env.DROPBOX_ACCESS_TOKEN || "").trim();
-  if (!configuredToken) {
-    return {
-      ok: false,
-      status: 500,
-      data: { error: "Missing DROPBOX_ACCESS_TOKEN" },
-    };
-  }
 
   const doRequest = async (token: string) => {
     const resp = await fetch(endpoint, {
@@ -138,6 +131,25 @@ export async function callDropboxApi(
     const data = await resp.json().catch(() => ({}));
     return { ok: resp.ok, status: resp.status, data };
   };
+
+  // If no access token was configured, try to mint one via refresh/auth-code first.
+  if (!configuredToken) {
+    const refreshAttempt = await refreshDropboxAccessTokenDetailed();
+    const refreshed = refreshAttempt.accessToken;
+    if (!refreshed) {
+      return {
+        ok: false,
+        status: 401,
+        data: {
+          error: "Dropbox access token missing and refresh failed.",
+          diagnostics: refreshAttempt.diagnostics,
+          hint:
+            "Set DROPBOX_REFRESH_TOKEN (preferred) or DROPBOX_AUTH_CODE (one-time), plus DROPBOX_APP_KEY and DROPBOX_APP_SECRET. Then restart the server.",
+        },
+      };
+    }
+    return doRequest(refreshed);
+  }
 
   const first = await doRequest(configuredToken);
   if (first.ok || !isExpiredTokenError(first.data)) {
