@@ -48,6 +48,52 @@ async function dropboxListFolderContinue(cursor: string) {
   return callDropboxApi('https://api.dropboxapi.com/2/files/list_folder/continue', { cursor });
 }
 
+type DropboxFileRow = {
+  name: string;
+  path_lower: string;
+  server_modified?: string;
+  size?: number;
+  rev?: string;
+};
+
+async function dropboxListAllFilesUnder(pathLower: string): Promise<DropboxFileRow[]> {
+  const files: DropboxFileRow[] = [];
+  const first = await dropboxListFolder(pathLower, true);
+  if (!first.ok) {
+    const msg =
+      typeof first.data?.error === 'string'
+        ? first.data.error
+        : typeof first.data?.hint === 'string'
+          ? `${first.data?.error || 'Dropbox error'} — ${first.data.hint}`
+          : JSON.stringify(first.data).slice(0, 600);
+    throw new Error(`Dropbox list failed: ${msg}`);
+  }
+  const push = (entries: any[]) => {
+    for (const e of entries) {
+      if (e?.['.tag'] !== 'file') continue;
+      if (typeof e?.path_lower !== 'string' || typeof e?.name !== 'string') continue;
+      files.push({
+        name: e.name as string,
+        path_lower: e.path_lower as string,
+        server_modified: typeof e.server_modified === 'string' ? e.server_modified : undefined,
+        size: typeof e.size === 'number' ? e.size : undefined,
+        rev: typeof e.rev === 'string' ? e.rev : undefined,
+      });
+    }
+  };
+  push(Array.isArray(first.data?.entries) ? first.data.entries : []);
+  let cursor = typeof first.data?.cursor === 'string' ? first.data.cursor : null;
+  let hasMore = !!first.data?.has_more;
+  while (hasMore && cursor) {
+    const next = await dropboxListFolderContinue(cursor);
+    if (!next.ok) break;
+    push(Array.isArray(next.data?.entries) ? next.data.entries : []);
+    cursor = typeof next.data?.cursor === 'string' ? next.data.cursor : null;
+    hasMore = !!next.data?.has_more;
+  }
+  return files;
+}
+
 async function dropboxCreateSharedLink(path: string): Promise<string | null> {
   // Prefer create; if already exists, fall back to list_shared_links.
   const created = await callDropboxApi('https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings', {
@@ -96,6 +142,55 @@ function pickLatestPlanPdf(files: Array<{ name: string; path_lower: string; serv
   });
 
   return candidates[0] || null;
+}
+
+function parentFolderLower(pathLower: string): string {
+  const parts = pathLower.split('/').filter(Boolean);
+  if (parts.length <= 1) return '';
+  return `/${parts.slice(0, -1).join('/')}`;
+}
+
+function chooseProjectDepth(rootLower: string, fileRows: DropboxFileRow[]): 1 | 2 {
+  const rootNorm = rootLower.toLowerCase().replace(/\/+$/g, '');
+  const topToSecond = new Map<string, Set<string>>();
+  for (const f of fileRows) {
+    if (!isPdf(f.name)) continue;
+    const folder = parentFolderLower(f.path_lower);
+    if (!folder.startsWith(rootNorm)) continue;
+    const rel = folder.slice(rootNorm.length).replace(/^\/+/, '');
+    const seg = rel.split('/').filter(Boolean);
+    if (seg.length < 2) continue;
+    const top = seg[0];
+    const second = seg[1];
+    if (!top || !second) continue;
+    const set = topToSecond.get(top) || new Set<string>();
+    set.add(second);
+    topToSecond.set(top, set);
+  }
+
+  let maxSecond = 0;
+  let multiTopCount = 0;
+  for (const set of topToSecond.values()) {
+    maxSecond = Math.max(maxSecond, set.size);
+    if (set.size >= 2) multiTopCount += 1;
+  }
+
+  // Heuristic: if any top folder contains multiple distinct second-level folders with PDFs,
+  // we treat projects as depth=2 (e.g. /Root/Category/Project/...).
+  if (maxSecond >= 2 && multiTopCount >= 1) return 2;
+  return 1;
+}
+
+function projectFolderFromFile(rootLower: string, filePathLower: string, depth: 1 | 2): string | null {
+  const rootNorm = rootLower.toLowerCase().replace(/\/+$/g, '');
+  const parent = parentFolderLower(filePathLower.toLowerCase());
+  if (!parent.startsWith(rootNorm)) return null;
+  const rel = parent.slice(rootNorm.length).replace(/^\/+/, '');
+  const seg = rel.split('/').filter(Boolean);
+  if (seg.length < 1) return null;
+  const use = seg.slice(0, depth);
+  if (!use.length) return null;
+  return `${rootNorm}/${use.join('/')}`.replace(/\/+$/g, '');
 }
 
 function buildExtractionPrompt(text: string) {
@@ -244,99 +339,22 @@ export async function POST(req: Request) {
 
       void (async () => {
         try {
-          send({ type: 'progress', step: 'starting', detail: 'Listing Dropbox folders…' });
+          send({ type: 'progress', step: 'starting', detail: 'Discovering plan PDFs in Dropbox…' });
 
-          const folders: Array<{ name: string; path_lower: string }> = [];
-          if (singleProjectFolderPath) {
-            folders.push({ name: singleProjectFolderPath.split('/').filter(Boolean).slice(-1)[0] || 'Project', path_lower: singleProjectFolderPath.toLowerCase() });
-          } else {
-            const root = await dropboxListFolder(rootFolderPath, false);
-            if (!root.ok) {
-              const errSummary = typeof root.data?.error_summary === 'string' ? root.data.error_summary : '';
-              if (errSummary.includes('path/not_found')) {
-                throw new Error(`Dropbox folder not found: "${rootFolderPath}". Check the configured root folder path.`);
-              }
-              const pretty =
-                typeof root.data?.error === 'string'
-                  ? root.data.error
-                  : typeof root.data?.hint === 'string'
-                    ? `${root.data?.error || 'Dropbox error'} — ${root.data.hint}`
-                    : JSON.stringify(root.data).slice(0, 600);
-              throw new Error(pretty);
-            }
-            const entries = Array.isArray(root.data?.entries) ? root.data.entries : [];
-            for (const e of entries) {
-              if (e?.['.tag'] === 'folder' && typeof e.path_lower === 'string' && typeof e.name === 'string') {
-                folders.push({ name: e.name, path_lower: e.path_lower });
-              }
-            }
-          }
-
-          const total = maxProjects > 0 ? Math.min(folders.length, maxProjects) : folders.length;
           let processed = 0;
           let skipped = 0;
 
-          for (let i = 0; i < folders.length; i += 1) {
-            if (maxProjects > 0 && processed + skipped >= maxProjects) break;
-            const f = folders[i];
-            send({
-              type: 'progress',
-              step: 'scanning',
-              detail: `Scanning ${f.name}…`,
-              current: processed + skipped + 1,
-              total,
-            });
-
-            // list files (recursive)
-            const files: Array<any> = [];
-            const first = await dropboxListFolder(f.path_lower, true);
-            if (!first.ok) {
-              const msg =
-                typeof first.data?.error === 'string'
-                  ? first.data.error
-                  : typeof first.data?.hint === 'string'
-                    ? `${first.data?.error || 'Dropbox error'} — ${first.data.hint}`
-                    : JSON.stringify(first.data).slice(0, 600);
-              send({
-                type: 'record',
-                record: {
-                  dropboxFolderPath: f.path_lower,
-                  dropboxFolderLink: null,
-                  needsReview: true,
-                  extractionError: `Dropbox list failed: ${msg}`,
-                },
-              });
-              processed += 1;
-              continue;
-            }
-            files.push(...(Array.isArray(first.data?.entries) ? first.data.entries : []));
-            let cursor = typeof first.data?.cursor === 'string' ? first.data.cursor : null;
-            let hasMore = !!first.data?.has_more;
-            while (hasMore && cursor) {
-              const next = await dropboxListFolderContinue(cursor);
-              if (!next.ok) break;
-              files.push(...(Array.isArray(next.data?.entries) ? next.data.entries : []));
-              cursor = typeof next.data?.cursor === 'string' ? next.data.cursor : null;
-              hasMore = !!next.data?.has_more;
-            }
-
-            const fileRows = files
-              .filter((e) => e?.['.tag'] === 'file' && typeof e?.path_lower === 'string' && typeof e?.name === 'string')
-              .map((e) => ({
-                name: e.name as string,
-                path_lower: e.path_lower as string,
-                server_modified: typeof e.server_modified === 'string' ? e.server_modified : undefined,
-                size: typeof e.size === 'number' ? e.size : undefined,
-                rev: typeof e.rev === 'string' ? e.rev : undefined,
-              }));
+          // Single-folder sync keeps the old semantics.
+          if (singleProjectFolderPath) {
+            const fileRows = await dropboxListAllFilesUnder(singleProjectFolderPath.toLowerCase());
 
             const planPdf = pickLatestPlanPdf(fileRows);
             if (!planPdf) {
-              const folderLink = await dropboxCreateSharedLink(f.path_lower);
+              const folderLink = await dropboxCreateSharedLink(singleProjectFolderPath.toLowerCase());
               send({
                 type: 'record',
                 record: {
-                  dropboxFolderPath: f.path_lower,
+                  dropboxFolderPath: singleProjectFolderPath.toLowerCase(),
                   dropboxFolderLink: folderLink,
                   needsReview: true,
                   extractionError: 'No PDFs found in folder.',
@@ -344,19 +362,23 @@ export async function POST(req: Request) {
                 },
               });
               processed += 1;
-              continue;
+              send({ type: 'complete', processed, skipped, total: 1 });
+              controller.close();
+              return;
             }
 
-            const prevRev = skipIfPdfRevMatches[f.path_lower] || skipIfPdfRevMatches[f.path_lower.toLowerCase()];
+            const prevRev = skipIfPdfRevMatches[singleProjectFolderPath.toLowerCase()];
             if (prevRev && planPdf.rev && prevRev === planPdf.rev) {
               skipped += 1;
-              continue;
+              send({ type: 'complete', processed, skipped, total: 1 });
+              controller.close();
+              return;
             }
 
             // renderings
             const renderings = fileRows.filter((r) => isRendering(r.name));
 
-            const folderLink = await dropboxCreateSharedLink(f.path_lower);
+            const folderLink = await dropboxCreateSharedLink(singleProjectFolderPath.toLowerCase());
             const planPdfSharedLink = await dropboxCreateSharedLink(planPdf.path_lower);
 
             const renderingLinks: string[] = [];
@@ -371,15 +393,157 @@ export async function POST(req: Request) {
               type: 'progress',
               step: 'downloading',
               detail: `Downloading plan PDF (${planPdf.name})…`,
-              current: processed + skipped + 1,
-              total,
+              current: 1,
+              total: 1,
             });
             const tmpLink = await dropboxGetTemporaryLink(planPdf.path_lower);
             if (!tmpLink) {
               send({
                 type: 'record',
                 record: {
-                  dropboxFolderPath: f.path_lower,
+                  dropboxFolderPath: singleProjectFolderPath.toLowerCase(),
+                  dropboxFolderLink: folderLink,
+                  planPdfPath: planPdf.path_lower,
+                  planPdfRev: planPdf.rev,
+                  planPdfModified: planPdf.server_modified,
+                  planPdfSharedLink,
+                  renderingLinks,
+                  thumbnailUrl,
+                  needsReview: true,
+                  extractionError: 'Could not get temporary download link for PDF.',
+                  lastSynced: new Date().toISOString(),
+                },
+              });
+              processed += 1;
+              send({ type: 'complete', processed, skipped, total: 1 });
+              controller.close();
+              return;
+            }
+
+            let extracted: any = null;
+            let extractionError: string | null = null;
+            try {
+              const pdfBytes = await fetchBytes(tmpLink);
+              const extractedText = await extractPdfTextByPage(pdfBytes, 16);
+              extracted = await runPerplexityExtraction(extractedText.pageTexts);
+            } catch (e) {
+              extractionError = e instanceof Error ? e.message : 'Extraction failed.';
+            }
+
+            const normalized = extracted ? normalizeExtracted(extracted) : null;
+            const missingFields = normalized ? computeMissingFields(normalized) : [];
+            const needsReview = !normalized || !!extractionError || missingFields.length > 0;
+
+            send({
+              type: 'record',
+              record: {
+                dropboxFolderPath: singleProjectFolderPath.toLowerCase(),
+                dropboxFolderLink: folderLink,
+                planPdfPath: planPdf.path_lower,
+                planPdfRev: planPdf.rev,
+                planPdfModified: planPdf.server_modified,
+                planPdfSharedLink,
+                renderingLinks,
+                thumbnailUrl,
+                ...(normalized || {}),
+                needsReview,
+                missingFields,
+                extractionError,
+                lastSynced: new Date().toISOString(),
+              },
+            });
+
+            processed += 1;
+            send({ type: 'complete', processed, skipped, total: 1 });
+            controller.close();
+            return;
+          }
+
+          // Root-folder sync: recursively list once, then group into projects by inferred folder depth.
+          const allFiles = await dropboxListAllFilesUnder(rootFolderPath.toLowerCase());
+          const depth = chooseProjectDepth(rootFolderPath.toLowerCase(), allFiles);
+
+          const projectToFiles = new Map<string, DropboxFileRow[]>();
+          for (const f of allFiles) {
+            if (!isPdf(f.name) && !isRendering(f.name)) continue;
+            const projectFolder = projectFolderFromFile(rootFolderPath.toLowerCase(), f.path_lower, depth);
+            if (!projectFolder) continue;
+            const list = projectToFiles.get(projectFolder) || [];
+            list.push(f);
+            projectToFiles.set(projectFolder, list);
+          }
+
+          const projectFolders = Array.from(projectToFiles.keys()).sort((a, b) => a.localeCompare(b));
+          const total = maxProjects > 0 ? Math.min(projectFolders.length, maxProjects) : projectFolders.length;
+
+          if (!projectFolders.length) {
+            send({ type: 'error', message: `No PDFs found under "${rootFolderPath}".` });
+            controller.close();
+            return;
+          }
+
+          for (let idx = 0; idx < projectFolders.length; idx += 1) {
+            if (maxProjects > 0 && processed + skipped >= maxProjects) break;
+            const projectFolder = projectFolders[idx];
+            const fileRows = projectToFiles.get(projectFolder) || [];
+            const projectNameGuess = projectFolder.split('/').filter(Boolean).slice(-1)[0] || 'Project';
+
+            send({
+              type: 'progress',
+              step: 'scanning',
+              detail: `Scanning ${projectNameGuess}…`,
+              current: processed + skipped + 1,
+              total,
+            });
+
+            const planPdf = pickLatestPlanPdf(fileRows);
+            if (!planPdf) {
+              const folderLink = await dropboxCreateSharedLink(projectFolder);
+              send({
+                type: 'record',
+                record: {
+                  dropboxFolderPath: projectFolder,
+                  dropboxFolderLink: folderLink,
+                  needsReview: true,
+                  extractionError: 'No PDFs found in folder.',
+                  lastSynced: new Date().toISOString(),
+                },
+              });
+              processed += 1;
+              continue;
+            }
+
+            const prevRev = skipIfPdfRevMatches[projectFolder] || skipIfPdfRevMatches[projectFolder.toLowerCase()];
+            if (prevRev && planPdf.rev && prevRev === planPdf.rev) {
+              skipped += 1;
+              continue;
+            }
+
+            const renderings = fileRows.filter((r) => isRendering(r.name));
+            const folderLink = await dropboxCreateSharedLink(projectFolder);
+            const planPdfSharedLink = await dropboxCreateSharedLink(planPdf.path_lower);
+
+            const renderingLinks: string[] = [];
+            for (const r of renderings.slice(0, 24)) {
+              const link = await dropboxCreateSharedLink(r.path_lower);
+              if (link) renderingLinks.push(link);
+            }
+            const thumbnailUrl = renderingLinks[0] || null;
+
+            send({
+              type: 'progress',
+              step: 'downloading',
+              detail: `Downloading plan PDF (${planPdf.name})…`,
+              current: processed + skipped + 1,
+              total,
+            });
+
+            const tmpLink = await dropboxGetTemporaryLink(planPdf.path_lower);
+            if (!tmpLink) {
+              send({
+                type: 'record',
+                record: {
+                  dropboxFolderPath: projectFolder,
                   dropboxFolderLink: folderLink,
                   planPdfPath: planPdf.path_lower,
                   planPdfRev: planPdf.rev,
@@ -413,7 +577,7 @@ export async function POST(req: Request) {
             send({
               type: 'record',
               record: {
-                dropboxFolderPath: f.path_lower,
+                dropboxFolderPath: projectFolder,
                 dropboxFolderLink: folderLink,
                 planPdfPath: planPdf.path_lower,
                 planPdfRev: planPdf.rev,
