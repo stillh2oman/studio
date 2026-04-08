@@ -23,7 +23,7 @@ import { useToast } from '@/hooks/use-toast';
 import Map, { Marker, NavigationControl } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import Image from 'next/image';
-import { RequestMeetingDialog } from '@/components/scheduling/request-meeting-dialog';
+import { SiteAnalysisDialog } from '@/components/projects/site-analysis-dialog';
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN || '';
 
@@ -128,7 +128,7 @@ export default function ProjectDashboardPage({ params }: { params: Promise<{ pro
   const [isNoteAddDialogOpen, setIsNoteAddDialogOpen] = useState(false);
   const [isAddBillableDialogOpen, setIsAddBillableDialogOpen] = useState(false);
   const [isAddPrintDialogOpen, setIsAddPrintDialogOpen] = useState(false);
-  const [isMeetingOpen, setIsMeetingOpen] = useState(false);
+  const [isSiteAnalysisOpen, setIsSiteAnalysisOpen] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('di_ledger_session_employee_id');
@@ -249,8 +249,19 @@ export default function ProjectDashboardPage({ params }: { params: Promise<{ pro
             <div className="text-right"><p className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Registered</p><p className="text-xs font-bold text-white">{project.createdAt ? format(new Date(project.createdAt), 'MMM d, yyyy') : '—'}</p></div>
             <div className="h-8 w-px bg-border/50" />
             <div className="text-right"><p className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Last Activity</p><p className="text-xs font-bold text-accent">{isValidDate(lastActivityDate) ? format(lastActivityDate!, 'MMM d, h:mm a') : 'Recently Registered'}</p></div>
-            <Button size="sm" variant="outline" className="gap-2" onClick={() => setIsMeetingOpen(true)}>
-              <Clock className="h-4 w-4" /> Request a Meeting
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-2"
+              disabled={!project.address?.trim()}
+              onClick={() => setIsSiteAnalysisOpen(true)}
+              title={
+                project.address?.trim()
+                  ? 'Assessor, GIS, zoning, codes, utilities (Perplexity research)'
+                  : 'Add a site address under Site Intelligence first'
+              }
+            >
+              <Globe className="h-4 w-4" /> Site analysis
             </Button>
             <Button size="sm" className="bg-primary shadow-lg shadow-primary/20 gap-2" onClick={() => router.push(`/projects/${projectId}/checklist`)}>
               <CheckCircle2 className="h-4 w-4" /> Checklist
@@ -278,18 +289,12 @@ export default function ProjectDashboardPage({ params }: { params: Promise<{ pro
       <QuickNoteDialog open={isNoteAddDialogOpen} onOpenChange={setIsNoteAddDialogOpen} projectId={projectId} authorName={`${myEmployee?.firstName} ${myEmployee?.lastName}`} dataRootId={dataRootId} />
       <QuickBillableDialog open={isAddBillableDialogOpen} onOpenChange={setIsAddBillableDialogOpen} projectId={projectId} clientId={project.clientId} designer={project.designer || 'Jeff Dillon'} dataRootId={dataRootId} hourlyRate={project.hourlyRate} />
       <QuickPrintDialog open={isAddPrintDialogOpen} onOpenChange={setIsAddPrintDialogOpen} projectId={projectId} clientId={project.clientId} designer={project.designer || 'Jeff Dillon'} dataRootId={dataRootId} />
-      {dataRootId ? (
-        <RequestMeetingDialog
-          open={isMeetingOpen}
-          onOpenChange={setIsMeetingOpen}
-          firmId={dataRootId}
-          accountId={project.clientId}
-          accountName={client?.name}
-          accountEmail={client?.email}
-          projectId={projectId}
-          projectName={project.name}
-        />
-      ) : null}
+      <SiteAnalysisDialog
+        open={isSiteAnalysisOpen}
+        onOpenChange={setIsSiteAnalysisOpen}
+        address={project.address || ''}
+        projectName={project.name || ''}
+      />
       <Dialog open={!!viewingTask} onOpenChange={(open) => { if (!open) { setViewingTask(null); setIsTaskEditing(false); } }}><DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">{viewingTask && (<div className="space-y-6"><DialogHeader><div className="flex justify-between items-start gap-4"><div className="space-y-1"><Badge variant="outline" className={cn("text-[10px] font-bold uppercase", viewingTask.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-muted')}>{viewingTask.status}</Badge>{isTaskEditing ? (<><DialogTitle className="sr-only">Edit task details</DialogTitle><Input className="text-2xl font-headline font-bold mt-2" value={taskForm.name || ''} onChange={e => setTaskForm({...taskForm, name: e.target.value})} /></>) : <DialogTitle className="font-headline text-3xl text-white mt-2">{viewingTask.name || viewingTask.description}</DialogTitle>}<div className="flex flex-wrap gap-4 text-xs text-muted-foreground mt-2"><span className="flex items-center gap-1"><Users className="h-3 w-3" /> {viewingTask.assignedTo}</span><span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Due {viewingTask.deadline}</span></div></div>{!isTaskEditing && <Button variant="outline" size="sm" onClick={() => { setTaskForm(viewingTask); setIsTaskEditing(true); }}><Pencil className="h-3 w-3 mr-2" /> Edit</Button>}</div></DialogHeader>{isTaskEditing ? (<div className="space-y-4 py-4 border-t border-border/50"><div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Assignee</Label><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={taskForm.assignedTo} onChange={e => setTaskForm({...taskForm, assignedTo: e.target.value as EmployeeName})}>{EMPLOYEES.map(e => <option key={e} value={e}>{e}</option>)}</select></div><div className="space-y-2"><Label>Priority</Label><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={taskForm.priority} onChange={e => setTaskForm({...taskForm, priority: e.target.value as Priority})}>{PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}</select></div><div className="space-y-2"><Label>Deadline</Label><Input type="date" value={taskForm.deadline} onChange={e => setTaskForm({...taskForm, deadline: e.target.value})} /></div><div className="space-y-2"><Label>Status</Label><select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={taskForm.status} onChange={e => setTaskForm({...taskForm, status: e.target.value as TaskStatus})}>{STATUSES.map(s => <option key={s} value={s}>{s}</option>)}</select></div></div><div className="space-y-2"><Label>Description</Label><Textarea className="min-h-[100px]" value={taskForm.description || ''} onChange={e => setTaskForm({...taskForm, description: e.target.value})} /></div></div>) : (<div className="space-y-4"><div className="space-y-2"><h4 className="text-sm font-bold uppercase tracking-widest text-accent">Description</h4><p className="text-sm leading-relaxed text-foreground/90 bg-muted/20 p-4 rounded-xl border border-border/50">{viewingTask.description || 'No description provided.'}</p></div><div className="space-y-3"><div className="flex items-center justify-between"><h4 className="text-sm font-bold uppercase tracking-widest text-accent">Checklist</h4><span className="text-[10px] font-bold text-muted-foreground uppercase">{viewingTask.subTasks?.filter(s => s.completed).length || 0} / {viewingTask.subTasks?.length || 0} Complete</span></div><div className="grid grid-cols-1 md:grid-cols-2 gap-2">{viewingTask.subTasks?.map(st => (<div key={st.id} className="flex items-start gap-3 p-3 rounded-lg bg-muted/10 border border-border/30 group"><Checkbox checked={st.completed} onCheckedChange={(checked) => toggleSubTaskInDialog(viewingTask.id, st.id, !!checked)} className="mt-0.5" /><div className="flex-1"><span className={cn("text-xs transition-all", st.completed ? 'line-through opacity-50' : 'text-white font-medium')}>{st.text}</span></div></div>))}</div></div>{viewingTask.attachments && viewingTask.attachments.length > 0 && (<div className="space-y-2"><h4 className="text-sm font-bold uppercase tracking-widest text-accent">Attachments</h4><div className="grid grid-cols-4 gap-2">{viewingTask.attachments.map(a => <AttachmentThumbnail key={a.id} attachment={a} />)}</div></div>)}</div>)}<DialogFooter className="pt-4 border-t border-border/50"><Button variant="outline" onClick={() => { setViewingTask(null); setIsTaskEditing(false); }}>Close</Button>{isTaskEditing ? <Button onClick={handleSaveTaskDetails} className="bg-primary gap-2"><Save className="h-4 w-4" /> Save</Button> : <Button onClick={() => { if (dataRootId) { const status = viewingTask.status === 'Completed' ? 'In Progress' : 'Completed'; updateDocumentNonBlocking(doc(firestore, 'employees', dataRootId, 'tasks', viewingTask.id), { status, updatedAt: new Date().toISOString() }); setViewingTask(null); } }}>{viewingTask.status === 'Completed' ? 'Re-open' : 'Complete'}</Button>}</DialogFooter></div>)}</DialogContent></Dialog>
       <Dialog open={isProjectEditing} onOpenChange={setIsProjectEditing}><DialogContent className="sm:max-w-[500px]"><DialogHeader><DialogTitle className="font-headline text-2xl">Site Intelligence</DialogTitle><DialogDescription>Update field-specific site data.</DialogDescription></DialogHeader><div className="space-y-4 py-4"><div className="space-y-2"><Label>Contractor</Label><Input value={projectForm.constructionCompany} onChange={e => setProjectForm({...projectForm, constructionCompany: e.target.value})} /></div><div className="space-y-2"><Label>Site Address</Label><Input placeholder="123 Example St, Stillwater, OK" value={projectForm.address} onChange={e => setProjectForm({...projectForm, address: e.target.value})} /></div><div className="grid grid-cols-2 gap-4 bg-muted/20 p-4 rounded-xl border"><div className="space-y-1"><Label className="text-[10px] uppercase font-bold">Latitude</Label><Input type="number" step="any" value={projectForm.lat} onChange={e => setProjectForm({...projectForm, lat: e.target.value})} /></div><div className="space-y-1"><Label className="text-[10px] uppercase font-bold">Longitude</Label><Input type="number" step="any" value={projectForm.lng} onChange={e => setProjectForm({...projectForm, lng: e.target.value})} /></div></div></div><DialogFooter><Button variant="outline" onClick={() => setIsProjectEditing(false)}>Cancel</Button><Button onClick={handleUpdateProjectDetails} className="bg-primary" disabled={isGeocoding}>{isGeocoding ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : 'Save Changes'}</Button></DialogFooter></DialogContent></Dialog>
     </div>
