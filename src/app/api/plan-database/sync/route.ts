@@ -216,7 +216,8 @@ function buildExtractionPrompt(text: string) {
     'You will be given extracted plain text from a residential construction plan set PDF.',
     'Extract the requested fields accurately.',
     'If a value cannot be found explicitly in the provided text, return null for that field.',
-    'Do not guess or infer values that are not explicitly shown.',
+    'Treat labeled plan statistics as explicit: 4 BR, 3.5 BA, 3 Car Garage, overall width x depth (feet and inches), or a PLAN STATS / PROJECT DATA table.',
+    'Do not invent values that are not present in the text.',
     '',
     'Return ONLY valid JSON with exactly these keys:',
     [
@@ -292,6 +293,16 @@ async function runPerplexityExtraction(pageTexts: string[]) {
 
 // (legacy) vision-only extraction removed in favor of combined text+vision prompt in `extractViaVisionThenText`.
 
+function toDimString(v: any): string | null {
+  if (v == null || v === '') return null;
+  if (typeof v === 'string') {
+    const t = v.trim();
+    return t || null;
+  }
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  return null;
+}
+
 function normalizeExtracted(obj: any) {
   const toNumOrNull = (v: any): number | null => {
     if (v == null || v === '') return null;
@@ -318,11 +329,105 @@ function normalizeExtracted(obj: any) {
     hasBasement: toBoolOrNull(obj?.has_basement),
     hasBonusRoom: toBoolOrNull(obj?.has_bonus_room),
     garageCars: toNumOrNull(obj?.garage_cars),
-    overallWidth: typeof obj?.overall_width === 'string' ? obj.overall_width : null,
-    overallDepth: typeof obj?.overall_depth === 'string' ? obj.overall_depth : null,
+    overallWidth: toDimString(obj?.overall_width),
+    overallDepth: toDimString(obj?.overall_depth),
   };
 
   return out;
+}
+
+/** Fill gaps from searchable PDF text (plan stats / cover sheet) when the model returns null. */
+function mergeHeuristicFromPlanText(
+  extracted: ReturnType<typeof normalizeExtracted>,
+  rawText: string,
+): ReturnType<typeof normalizeExtracted> {
+  const t = rawText.replace(/\r\n/g, '\n').slice(0, 200_000);
+  if (!t.trim()) return extracted;
+
+  const out = { ...extracted };
+  const fillNum = (key: keyof typeof out, n: number | null) => {
+    if (n == null || !Number.isFinite(n)) return;
+    const cur = out[key];
+    if (cur != null && cur !== '') return;
+    (out as any)[key] = n;
+  };
+  const fillStr = (key: 'overallWidth' | 'overallDepth', s: string | null) => {
+    if (!s) return;
+    const cur = out[key];
+    if (cur != null && String(cur).trim() !== '') return;
+    (out as any)[key] = s.trim();
+  };
+  const fillBool = (key: 'hasBasement' | 'hasBonusRoom', b: boolean | null) => {
+    if (b == null) return;
+    if (out[key] != null) return;
+    (out as any)[key] = b;
+  };
+
+  let m: RegExpMatchArray | null;
+
+  m = t.match(/\b(\d+)\s*(?:BR)\b/i);
+  if (!m) m = t.match(/\b(?:bed|bedroom)s?\s*[:\s]+\s*(\d+)\b/i);
+  if (!m) m = t.match(/\b(\d+)\s*(?:bed|bedroom)s?\b/i);
+  if (m) fillNum('bedrooms', Number(m[1]));
+
+  m = t.match(/\b(\d+(?:\.\d+)?)\s*(?:BA)\b/i);
+  if (!m) m = t.match(/\b(?:bath|bathroom)s?\s*[:\s]+\s*(\d+(?:\.\d+)?)\b/i);
+  if (!m) m = t.match(/\b(\d+(?:\.\d+)?)\s*(?:bath|bathroom)s?\b/i);
+  if (m) fillNum('bathrooms', Number(m[1]));
+
+  m = t.match(/\b(\d+)\s*[- ]?\s*CAR\s+(?:GARAGE|GAR\.?)\b/i);
+  if (!m) m = t.match(/\b(?:GARAGE|GAR\.?)\s*[:\s]+\s*(\d+)\s*(?:CAR|BAY|CARS)\b/i);
+  if (!m) m = t.match(/\b(\d+)\s*(?:CAR|BAY)\s+(?:GARAGE|GAR\.?)\b/i);
+  if (m) fillNum('garageCars', Number(m[1]));
+
+  m = t.match(
+    /\b(?:OVERALL|O\.?\s*A\.?)\s*(?:SIZE|WIDTH\s*[&+]?\s*DEPTH|DIM)?\s*[:\s]*([0-9]{1,3}\s*'?\s*[-–]?\s*[0-9]{0,2}\s*"?)\s*[xX×]\s*([0-9]{1,3}\s*'?\s*[-–]?\s*[0-9]{0,2}\s*"?)/i,
+  );
+  if (m) {
+    fillStr('overallWidth', m[1].replace(/\s+/g, ' ').trim());
+    fillStr('overallDepth', m[2].replace(/\s+/g, ' ').trim());
+  }
+
+  if (/\bNO\s+BASEMENT\b/i.test(t)) fillBool('hasBasement', false);
+  else if (
+    /\b(?:WALKOUT|DAYLIGHT|FINISHED|UNFINISHED|FULL)\s+BASEMENT\b/i.test(t) ||
+    /\bBASEMENT\s+(?:LEVEL|FLOOR|PLAN|STORAGE)\b/i.test(t)
+  ) {
+    fillBool('hasBasement', true);
+  }
+
+  if (/\bBONUS\s+(?:ROOM|SPACE|LEVEL)\b/i.test(t) || /\bBONUS\s*RM\b/i.test(t)) {
+    fillBool('hasBonusRoom', true);
+  }
+
+  m = t.match(/\b(?:HEATED|HTD|H\.?\s*T\.?\s*D\.?|LIVING)\b[^0-9]{0,48}(\d{1,5})\s*(?:SF|S\.?F\.?|SQ\.?\s*FT\.?)\b/i);
+  if (!m) m = t.match(/\b(\d{1,5})\s*(?:SF|S\.?F\.?)\b[^.\n]{0,40}\b(?:HEATED|HTD|TO\s*FRAME)\b/i);
+  if (m) fillNum('heatedSqftToFrame', Number(m[1].replace(/,/g, '')));
+
+  return out;
+}
+
+function extractionShapeFromNormalized(n: ReturnType<typeof normalizeExtracted>): Record<string, unknown> {
+  return {
+    project_name: n.projectName,
+    client_name: n.clientName,
+    designer_name: n.designerName,
+    heated_sqft_to_frame: n.heatedSqftToFrame,
+    bedrooms: n.bedrooms,
+    bathrooms: n.bathrooms,
+    floors: n.floors,
+    has_basement: n.hasBasement,
+    has_bonus_room: n.hasBonusRoom,
+    garage_cars: n.garageCars,
+    overall_width: n.overallWidth,
+    overall_depth: n.overallDepth,
+  };
+}
+
+function finalizeExtraction(raw: any, combinedText: string): any {
+  const norm = normalizeExtracted(raw);
+  const merged = mergeHeuristicFromPlanText(norm, combinedText);
+  return extractionShapeFromNormalized(merged);
 }
 
 function computeMissingFields(extracted: ReturnType<typeof normalizeExtracted>) {
@@ -350,21 +455,28 @@ async function extractViaVisionThenText(pdfBytes: Buffer): Promise<any> {
 
   const needsTargetedPass = (obj: any) => {
     const n = normalizeExtracted(obj);
-    const critical: Array<keyof typeof n> = ['bedrooms', 'bathrooms', 'garageCars', 'overallWidth', 'overallDepth'];
-    let missing = 0;
-    for (const k of critical) {
+    const critical: Array<keyof typeof n> = [
+      'bedrooms',
+      'bathrooms',
+      'garageCars',
+      'overallWidth',
+      'overallDepth',
+      'floors',
+      'hasBasement',
+      'hasBonusRoom',
+    ];
+    return critical.some((k) => {
       const v = (n as any)[k];
-      if (v == null || v === '') missing += 1;
-    }
-    return missing >= 3;
+      return v == null || v === '';
+    });
   };
 
   let jobDir: string | undefined;
   try {
     jobDir = await createPlanReviewJobDir();
     const raster = await rasterizePdfToPngPages(pdfBytes, jobDir, {
-      maxPages: 12,
-      scale: Math.max(PLAN_REVIEW_RASTER_SCALE, 2.0),
+      maxPages: 20,
+      scale: Math.max(PLAN_REVIEW_RASTER_SCALE, 2.25),
     });
     if (raster.pages.length) {
       // Feed both the extracted text AND the images; the model can cross-check.
@@ -376,7 +488,8 @@ async function extractViaVisionThenText(pdfBytes: Buffer): Promise<any> {
         'You will be given a residential plan set as (1) extracted PDF text and (2) page images.',
         'Extract the requested fields accurately from what is explicitly shown.',
         'If a value cannot be found explicitly, return null.',
-        'Do not guess.',
+        'Labeled plan stats (PLAN STATS, PROJECT DATA, 4 BR / 3.5 BA, 3-car garage, overall WxD) count as explicit.',
+        'Do not invent values that are not visible in the text or images.',
         '',
         'Return ONLY valid JSON with exactly these keys:',
         [
@@ -426,7 +539,7 @@ async function extractViaVisionThenText(pdfBytes: Buffer): Promise<any> {
           model: 'sonar-pro',
           temperature: 0.1,
           disable_search: true,
-          max_tokens: 2200,
+          max_tokens: 2800,
           messages: [
             { role: 'system', content: system },
             { role: 'user', content: buildUserContent() },
@@ -457,20 +570,32 @@ async function extractViaVisionThenText(pdfBytes: Buffer): Promise<any> {
       };
 
       const first = await callPerplexity(baseSystem);
-      if (!needsTargetedPass(first)) return first;
+      let mergedRaw = first;
+      if (needsTargetedPass(first)) {
+        const targetedSystem = [
+          'You are an expert architectural plan analyst.',
+          'Your job is ONLY to extract these fields from the provided plan pages:',
+          '"bedrooms", "bathrooms", "garage_cars", "overall_width", "overall_depth", "floors", "has_basement", "has_bonus_room".',
+          'Look for a PLAN STATS / PROJECT DATA / AREA SUMMARY box, door schedule, garage notes, basement level notes, and overall dimensions on cover sheet or elevations.',
+          'Abbreviations like 4BR, 3.5BA, and "3 car" garage are acceptable when clearly part of a stat block.',
+          'If values are not explicitly present, return null for that field.',
+          'Return ONLY valid JSON with exactly these keys:',
+          [
+            '"bedrooms"',
+            '"bathrooms"',
+            '"garage_cars"',
+            '"overall_width"',
+            '"overall_depth"',
+            '"floors"',
+            '"has_basement"',
+            '"has_bonus_room"',
+          ].join(', '),
+        ].join('\n');
 
-      const targetedSystem = [
-        'You are an expert architectural plan analyst.',
-        'Your job is ONLY to extract these fields from the provided plan pages:',
-        '"bedrooms", "bathrooms", "garage_cars", "overall_width", "overall_depth".',
-        'Look for a PLAN STATS / PROJECT DATA / AREA SUMMARY box or cover sheet notes.',
-        'If values are not explicitly present, return null for that field.',
-        'Return ONLY valid JSON with exactly these keys:',
-        ['"bedrooms"', '"bathrooms"', '"garage_cars"', '"overall_width"', '"overall_depth"'].join(', '),
-      ].join('\n');
-
-      const second = await callPerplexity(targetedSystem);
-      return mergePreferNonNull(first, second);
+        const second = await callPerplexity(targetedSystem);
+        mergedRaw = mergePreferNonNull(first, second);
+      }
+      return finalizeExtraction(mergedRaw, combinedText);
     }
   } catch (e) {
     // Vision not available on some hosts (native canvas deps). We'll fall back to text.
@@ -479,7 +604,8 @@ async function extractViaVisionThenText(pdfBytes: Buffer): Promise<any> {
     await safeRmrf(jobDir);
   }
 
-  return await runPerplexityExtraction(extractedText.pageTexts);
+  const textRaw = await runPerplexityExtraction(extractedText.pageTexts);
+  return finalizeExtraction(textRaw, combinedText);
 }
 
 export async function POST(req: Request) {
