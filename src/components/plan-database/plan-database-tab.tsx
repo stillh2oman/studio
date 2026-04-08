@@ -62,6 +62,15 @@ function parseNdjsonLines(buffer: string): { lines: string[]; rest: string } {
   return { lines: parts, rest };
 }
 
+function renderingDisplaySrc(linkOrPath: string): string {
+  const t = String(linkOrPath || "").trim();
+  if (!t) return "";
+  if (t.startsWith("/")) {
+    return `/api/dropbox/proxy-download?path=${encodeURIComponent(t)}`;
+  }
+  return dropboxImgSrc(t);
+}
+
 function normalizeDropboxPathInput(raw: string): string {
   const t = String(raw || "").trim();
   if (!t) return "";
@@ -536,7 +545,7 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
                   </TableRow>
                 ) : (
                   filtered.map((r) => {
-                    const thumb = dropboxImgSrc(r.thumbnailUrl || undefined);
+                    const thumb = r.thumbnailUrl ? renderingDisplaySrc(r.thumbnailUrl) : "";
                     const hasThumb = !!thumb;
                     const needsReview = !!r.needsReview;
                     const rowTitle = needsReview
@@ -651,11 +660,11 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
                   <div className="grid grid-cols-2 gap-3">
                     {(selected.renderingLinks || []).length ? (
                       selected.renderingLinks!.map((u) => {
-                        const src = dropboxImgSrc(u);
+                        const src = renderingDisplaySrc(u);
                         return (
                           <a
                             key={u}
-                            href={u}
+                            href={u.startsWith("/") ? src : u}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="block rounded-lg overflow-hidden border border-border/50 bg-muted/10 hover:border-primary/40 transition-colors"

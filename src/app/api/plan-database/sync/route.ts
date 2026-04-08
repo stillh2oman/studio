@@ -118,6 +118,10 @@ async function dropboxGetTemporaryLink(path: string): Promise<string | null> {
   return typeof link === 'string' && link.trim() ? link.trim() : null;
 }
 
+function sleep(ms: number) {
+  return new Promise<void>((r) => setTimeout(r, ms));
+}
+
 async function fetchBytes(url: string): Promise<Buffer> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Download failed (${res.status})`);
@@ -380,12 +384,7 @@ export async function POST(req: Request) {
 
             const folderLink = await dropboxCreateSharedLink(singleProjectFolderPath.toLowerCase());
             const planPdfSharedLink = await dropboxCreateSharedLink(planPdf.path_lower);
-
-            const renderingLinks: string[] = [];
-            for (const r of renderings.slice(0, 24)) {
-              const link = await dropboxCreateSharedLink(r.path_lower);
-              if (link) renderingLinks.push(link);
-            }
+            const renderingLinks = renderings.slice(0, 24).map((r) => r.path_lower);
             const thumbnailUrl = renderingLinks[0] || null;
 
             // download pdf
@@ -474,7 +473,8 @@ export async function POST(req: Request) {
           }
 
           const projectFolders = Array.from(projectToFiles.keys()).sort((a, b) => a.localeCompare(b));
-          const total = maxProjects > 0 ? Math.min(projectFolders.length, maxProjects) : projectFolders.length;
+          const effectiveMax = maxProjects > 0 ? maxProjects : 20;
+          const total = Math.min(projectFolders.length, effectiveMax);
 
           if (!projectFolders.length) {
             send({ type: 'error', message: `No PDFs found under "${rootFolderPath}".` });
@@ -483,7 +483,7 @@ export async function POST(req: Request) {
           }
 
           for (let idx = 0; idx < projectFolders.length; idx += 1) {
-            if (maxProjects > 0 && processed + skipped >= maxProjects) break;
+            if (processed + skipped >= effectiveMax) break;
             const projectFolder = projectFolders[idx];
             const fileRows = projectToFiles.get(projectFolder) || [];
             const projectNameGuess = projectFolder.split('/').filter(Boolean).slice(-1)[0] || 'Project';
@@ -523,11 +523,9 @@ export async function POST(req: Request) {
             const folderLink = await dropboxCreateSharedLink(projectFolder);
             const planPdfSharedLink = await dropboxCreateSharedLink(planPdf.path_lower);
 
-            const renderingLinks: string[] = [];
-            for (const r of renderings.slice(0, 24)) {
-              const link = await dropboxCreateSharedLink(r.path_lower);
-              if (link) renderingLinks.push(link);
-            }
+            // IMPORTANT: avoid creating shared links for every rendering during sync (rate limits / slow).
+            // Store Dropbox paths and fetch temporary links on-demand for display.
+            const renderingLinks = renderings.slice(0, 24).map((r) => r.path_lower);
             const thumbnailUrl = renderingLinks[0] || null;
 
             send({
@@ -594,6 +592,9 @@ export async function POST(req: Request) {
             });
 
             processed += 1;
+
+            // Dropbox rate limit safety (and reduces likelihood of upstream 503s).
+            await sleep(120);
           }
 
           send({ type: 'complete', processed, skipped, total });
