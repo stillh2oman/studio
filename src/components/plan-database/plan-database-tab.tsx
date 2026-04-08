@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLedgerData } from "@/hooks/use-ledger-data";
-import { useFirestore, setDocumentNonBlocking } from "@/firebase";
+import { useFirestore, setDocumentNonBlocking, deleteDocumentNonBlocking } from "@/firebase";
 import { doc } from "firebase/firestore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -161,6 +161,7 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
 
   const [selected, setSelected] = useState<PlanDatabaseRecord | null>(null);
   const [resyncBusy, setResyncBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const [editCell, setEditCell] = useState<{ id: string; field: keyof PlanDatabaseRecord; value: string } | null>(null);
 
@@ -364,6 +365,24 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
     await setDocumentNonBlocking(ref, patch, { merge: true });
     setEditCell(null);
   };
+
+  const deleteSelected = useCallback(async () => {
+    if (!dataRootId || !selected?.id) return;
+    const label = selected.projectName || selected.dropboxFolderPath || selected.id;
+    const ok = window.confirm(`Delete this plan from the catalog?\n\n${label}\n\nThis cannot be undone.`);
+    if (!ok) return;
+    setDeleteBusy(true);
+    try {
+      await deleteDocumentNonBlocking(doc(firestore, "employees", dataRootId, "plan_database", selected.id));
+      setSelected(null);
+      toast({ title: "Deleted", description: "The catalog entry was removed." });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Delete failed.";
+      toast({ variant: "destructive", title: "Delete failed", description: msg });
+    } finally {
+      setDeleteBusy(false);
+    }
+  }, [dataRootId, firestore, selected, toast]);
 
   return (
     <div className="space-y-6 max-w-[1700px] mx-auto">
@@ -842,6 +861,15 @@ export function PlanDatabaseTab({ sessionEmployeeId = null }: { sessionEmployeeI
             </div>
           ) : null}
           <DialogFooter className="mt-2">
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void deleteSelected()}
+              disabled={!selected?.id || deleteBusy || resyncBusy || syncBusy}
+              title="Delete this entry from the Plan Database"
+            >
+              {deleteBusy ? "Deleting…" : "Delete"}
+            </Button>
             <Button type="button" variant="outline" onClick={() => setSelected(null)}>
               Close
             </Button>
