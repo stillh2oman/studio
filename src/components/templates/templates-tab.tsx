@@ -141,7 +141,7 @@ export function TemplatesTab({ requests, onAddRequest, onUpdateRequest, onDelete
             <CardTitle className="font-headline text-3xl text-accent flex justify-between items-center">
               {editingId ? 'Edit Request' : 'Template & App Change Requests'}
               {editingId && (
-                <Button variant="ghost" size="sm" onClick={resetForm} className="text-muted-foreground hover:text-white">Cancel</Button>
+                <Button variant="ghost" size="sm" onClick={resetForm} className="text-muted-foreground">Cancel</Button>
               )}
             </CardTitle>
           </CardHeader>

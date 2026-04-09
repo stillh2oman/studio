@@ -579,7 +579,7 @@ export function VoiceNoteDialog() {
         </div>
 
         <DialogFooter className="border-t border-border/50 pt-6 gap-3">
-          <Button variant="ghost" onClick={handleDiscard} disabled={isSaving} className="text-muted-foreground hover:text-white">Discard</Button>
+          <Button variant="ghost" onClick={handleDiscard} disabled={isSaving} className="text-muted-foreground">Discard</Button>
           <Button 
             className="bg-primary px-8 h-12 font-bold gap-2 shadow-lg shadow-primary/20 text-white" 
             disabled={!projectId || !transcription.trim() || isSaving || isVideoProcessing || isRecordingVideo} 

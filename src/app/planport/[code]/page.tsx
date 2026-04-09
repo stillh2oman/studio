@@ -376,7 +376,7 @@ export default function PlanPortViewer({ params }: { params: Promise<{ code: str
                                   <MapPin className="h-2.5 w-2.5 text-accent" /> {project.address || 'Site Assignment'}
                                 </p>
                               </div>
-                              <Button className="w-full h-10 bg-primary/10 border border-primary/20 text-primary group-hover:bg-primary group-hover:text-white transition-all font-bold gap-2">
+                              <Button className="w-full h-10 bg-primary/10 border border-primary/20 text-primary group-hover:bg-black group-hover:text-white group-hover:border-black transition-all font-bold gap-2">
                                 OPEN VAULT <ChevronRight className="h-4 w-4" />
                               </Button>
                             </div>

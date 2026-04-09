@@ -81,7 +81,7 @@ export function AiPromptsTab({ prompts, onAddPrompt, onUpdatePrompt, onDeletePro
             <CardTitle className="font-headline text-3xl text-accent flex justify-between items-center">
               {editingId ? 'Edit Template' : 'Manage Prompt Library'}
               {editingId && (
-                <Button variant="ghost" size="sm" onClick={resetForm} className="text-muted-foreground hover:text-white">Cancel Edit</Button>
+                <Button variant="ghost" size="sm" onClick={resetForm} className="text-muted-foreground">Cancel Edit</Button>
               )}
             </CardTitle>
           </CardHeader>

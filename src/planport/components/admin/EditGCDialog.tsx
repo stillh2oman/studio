@@ -99,7 +99,7 @@ export function EditGCDialog({ gc }: EditGCDialogProps) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="w-full justify-between hover:bg-primary hover:text-white mt-2">
+        <Button variant="outline" size="sm" className="w-full justify-between mt-2">
           Edit Contractor Settings
           <Settings2 className="w-4 h-4 ml-2" />
         </Button>

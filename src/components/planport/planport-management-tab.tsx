@@ -236,7 +236,7 @@ export function PlanPortManagementTab({ clients, projects }: PlanPortManagementT
                         <Button 
                           size="sm" 
                           variant="outline" 
-                          className="h-7 text-[9px] font-black uppercase border-primary/30 text-primary hover:bg-primary hover:text-white"
+                          className="h-7 text-[9px] font-black uppercase border-primary/30 text-primary"
                           onClick={() => handleImportProject(project.id)}
                         >
                           IMPORT

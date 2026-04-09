@@ -199,7 +199,7 @@ export function FocusMode() {
                   "w-full h-12 justify-start gap-4 rounded-xl border border-transparent transition-all",
                   activeSound === sound.id 
                     ? "bg-indigo-500/20 border-indigo-500/30 text-white" 
-                    : "hover:bg-muted/20 text-muted-foreground hover:text-white"
+                    : "text-muted-foreground hover:bg-black hover:text-white"
                 )}
                 onClick={() => toggleSound(sound.id)}
               >

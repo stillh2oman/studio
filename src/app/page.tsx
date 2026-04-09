@@ -590,7 +590,7 @@ function LedgerCommandCenter() {
                  <Database className="h-4 w-4" /> Import PlanPort
                </Link>
              </Button>
-             <Button variant="ghost" size="sm" onClick={handleLogout} className="text-muted-foreground hover:text-white gap-2"><LogOut className="h-4 w-4" /> Reset Session</Button>
+             <Button variant="ghost" size="sm" onClick={handleLogout} className="text-muted-foreground gap-2"><LogOut className="h-4 w-4" /> Reset Session</Button>
           </div>
         </div>
       </header>

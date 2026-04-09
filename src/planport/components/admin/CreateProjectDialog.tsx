@@ -257,7 +257,7 @@ export function CreateProjectDialog({ type, parentId, parentName }: CreateProjec
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="outline" className="w-full justify-between hover:bg-primary hover:text-white">
+        <Button variant="outline" className="w-full justify-between">
           Add New Project
           <FolderPlus className="w-4 h-4 ml-2" />
         </Button>
