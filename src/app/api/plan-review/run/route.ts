@@ -119,10 +119,21 @@ export async function POST(req: Request) {
         controller.enqueue(encodeEvent(ev));
       };
 
+      /** Flush immediately so gateways/proxies do not idle-timeout before heavy PDF work begins. */
+      try {
+        const mb = (buf.length / (1024 * 1024)).toFixed(2);
+        send({
+          type: 'progress',
+          step: 'uploaded',
+          detail: `${name} (${mb} MB) — starting PDF processing…`,
+        });
+      } catch (e) {
+        console.error('[plan-review] failed to enqueue initial progress chunk', e);
+      }
+
       void (async () => {
         let jobDir: string | undefined;
         try {
-          send({ type: 'progress', step: 'uploaded', detail: name });
           jobDir = await createPlanReviewJobDir();
 
           send({

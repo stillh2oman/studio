@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useLedgerData } from "@/hooks/use-ledger-data";
 import { cn } from "@/lib/utils";
@@ -49,7 +50,12 @@ function stepIndex(step: PlanReviewProgressStep | null): number {
   return STEP_ORDER.findIndex((s) => s.id === step);
 }
 
-function formatPlanReviewHttpFailure(status: number, bodyText: string, maxPdfMbServer: number): string {
+function formatPlanReviewHttpFailure(
+  status: number,
+  bodyText: string,
+  maxPdfMbServer: number,
+  maxPagesHint?: number,
+): string {
   const t = bodyText.trim();
   const looksLikeGoogle502 =
     status === 502 && (t.includes("<!DOCTYPE html") || t.includes("Error 502") || t.includes("That’s an error."));
@@ -57,8 +63,10 @@ function formatPlanReviewHttpFailure(status: number, bodyText: string, maxPdfMbS
     const safeBelow = Math.max(1, Math.floor(maxPdfMbServer * 0.85));
     return [
       `Upstream gateway error (${status}).`,
-      "This usually means the request never reached the app (common causes: PDF + form data exceeds the hosting/proxy request size limit, or the serverless instance crashed).",
-      `Try a smaller PDF (aim below ~${safeBelow}MB because multipart uploads add overhead beyond the PDF file size), split the plan set, or temporarily omit the optional checklist attachment.`,
+      "Common causes: (1) the upload + form fields exceed a proxy body limit, (2) the server crashed before it could stream a response, or (3) an idle timeout closed the connection before the first streamed progress line (large PDFs can take a while to parse).",
+      `Try: turn off “Include Master Checklist in upload” to shrink the request, use a smaller PDF${
+        typeof maxPagesHint === "number" ? ` or fewer than ${maxPagesHint} pages` : ""
+      }, split the plan set, then retry. If it still fails under ~${safeBelow} MB file size, the limit is likely outside the PDF bytes (multipart overhead + checklist JSON + prompt snapshot).`,
     ].join(" ");
   }
   if (status === 413) {
@@ -100,6 +108,8 @@ export function PlanReviewTab({
   const [file, setFile] = useState<File | null>(null);
   /** When set, plan review includes that project's Ledger checklist in the model prompt and PDF. */
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  /** Full checklist JSON in FormData can push multipart uploads over strict proxy limits; allow disabling. */
+  const [includeChecklistInUpload, setIncludeChecklistInUpload] = useState(true);
 
   const [busy, setBusy] = useState(false);
   const [lastProgressStep, setLastProgressStep] = useState<PlanReviewProgressStep | null>(null);
@@ -246,7 +256,9 @@ export function PlanReviewTab({
         }),
       );
     }
-    fd.append("checklistBundle", checklistBundleJson);
+    if (includeChecklistInUpload) {
+      fd.append("checklistBundle", checklistBundleJson);
+    }
 
     try {
       const res = await fetch("/api/plan-review/run", {
@@ -264,14 +276,14 @@ export function PlanReviewTab({
         const errText = await res.text().catch(() => "");
         if (res.status === 503) {
           throw new Error(
-            formatPlanReviewHttpFailure(res.status, errText) ||
+            errText.trim() ||
               "Service unavailable (503). Confirm PERPLEXITY_API_KEY is set for the deployed environment, then retry.",
           );
         }
         if (res.status === 502) {
-          throw new Error(formatPlanReviewHttpFailure(res.status, errText, maxPdfMb));
+          throw new Error(formatPlanReviewHttpFailure(res.status, errText, maxPdfMb, maxPages));
         }
-        throw new Error(formatPlanReviewHttpFailure(res.status, errText, maxPdfMb));
+        throw new Error(formatPlanReviewHttpFailure(res.status, errText, maxPdfMb, maxPages));
       }
 
       const reader = res.body.getReader();
@@ -373,9 +385,9 @@ export function PlanReviewTab({
           <ClipboardList className="h-5 w-5 text-primary" /> Plan Review
         </h3>
         <p className="text-sm text-muted-foreground max-w-3xl">
-          Upload an architectural PDF plan set, pick a review focus, and get an AI-assisted report. The server rasterizes
-          pages (first {maxPages} sheets), sends images to Perplexity, then builds a downloadable PDF. Large sets take
-          longer.
+          Upload an architectural PDF plan set, pick a review focus, and get an AI-assisted report. The server processes
+          the first {maxPages} pages (text extraction by default; image mode only if enabled on the host), sends them to
+          Perplexity, then builds a downloadable PDF. Large or complex PDFs can take several minutes.
         </p>
       </div>
 
@@ -480,6 +492,18 @@ export function PlanReviewTab({
                   The model verifies each Master Checklist item against the plan set itself (not completion checkmarks) and
                   includes evidence (sheet/page refs) for verified/missing/unclear/conflicting items.
                 </p>
+                <label className="flex items-start gap-2 text-xs text-muted-foreground cursor-pointer">
+                  <Checkbox
+                    checked={includeChecklistInUpload}
+                    onCheckedChange={(c) => setIncludeChecklistInUpload(c === true)}
+                    disabled={busy}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Include Master Checklist in upload (recommended). Turn off if you see a{" "}
+                    <span className="text-foreground/90">502 / gateway</span> error — it shrinks the multipart request.
+                  </span>
+                </label>
               </div>
 
               <div className="space-y-2">
