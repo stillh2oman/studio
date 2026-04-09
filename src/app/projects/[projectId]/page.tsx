@@ -115,8 +115,6 @@ export default function ProjectDashboardPage({ params }: { params: Promise<{ pro
   const [isGeocoding, setIsGeocoding] = useState(false);
   
   const [viewingTask, setViewingTask] = useState<Task | null>(null);
-  const [editingBillable, setEditingBillable] = useState<BillableEntry | null>(null);
-  const [editingPrint, setEditingPrint] = useState<PrintEntry | null>(null);
   
   const [isProjectEditing, setIsProjectEditing] = useState(false);
   const [projectForm, setProjectForm] = useState({ address: '', constructionCompany: '', lat: '', lng: '' });
@@ -282,12 +280,12 @@ export default function ProjectDashboardPage({ params }: { params: Promise<{ pro
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="space-y-4"><div className="flex items-center justify-between px-2"><h3 className="font-headline text-xl text-white flex items-center gap-2"><ListTodo className="h-5 w-5 text-primary" /> Pending Tasks</h3><div className="flex items-center gap-2"><Badge variant="outline" className="bg-muted/30 text-[10px]">{tasks?.filter(t => t.status !== 'Completed').length || 0}</Badge><Button size="icon" variant="ghost" className="h-7 w-7 bg-primary/10 text-primary hover:bg-primary/20 rounded-full" onClick={() => setIsTaskAddDialogOpen(true)}><Plus className="h-4 w-4" /></Button></div></div><ScrollArea className="h-[600px] pr-4"><div className="space-y-4">{tasks?.filter(t => t.status !== 'Completed').length === 0 ? <div className="text-center py-20 bg-muted/10 rounded-2xl border border-dashed border-border/50 text-xs text-muted-foreground italic">No active tasks logged.</div> : tasks?.filter(t => t.status !== 'Completed').map(task => { const isOverdue = task.deadline && isPast(startOfDay(parseISO(task.deadline))) && task.status !== 'Completed'; return (<Card key={task.id} onClick={() => { setViewingTask(task); setTaskForm(task); }} className={cn("bg-card/30 border-border/50 hover:border-primary/30 transition-all group cursor-pointer", isOverdue && "border-rose-500/20 bg-rose-500/5")}><CardContent className="p-4 space-y-3"><div className="flex justify-between items-start"><h4 className={cn("font-bold text-sm text-white group-hover:text-primary transition-colors line-clamp-2", isOverdue && "text-rose-500")}>{task.name || task.description}</h4><Badge variant="outline" className={cn("text-[8px] uppercase", task.priority === 'High' ? 'border-rose-500/30 text-rose-500' : 'border-muted text-muted-foreground')}>{task.priority}</Badge></div><div className="flex items-center justify-between border-t border-border/20 pt-3"><div className={cn("flex items-center gap-2 text-[10px]", isOverdue ? "text-rose-500 font-bold" : "text-muted-foreground")}><Clock className="h-3 w-3" /> {task.deadline || '—'}</div><div className="flex items-center gap-2">{task.subTasks?.length > 0 && <span className="text-[8px] font-black text-muted-foreground uppercase">{task.subTasks.filter(s => s.completed).length}/{task.subTasks.length} DONE</span>}<span className="text-[10px] font-bold text-accent">{task.assignedTo}</span><Pencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-50" /></div></div></CardContent></Card>); })}</div></ScrollArea></div>
           <div className="space-y-4"><div className="flex items-center justify-between px-2"><h3 className="font-headline text-xl text-white flex items-center gap-2"><MessageSquare className="h-5 w-5 text-accent" /> Activity Log</h3><div className="flex items-center gap-2"><Badge variant="outline" className="bg-muted/30 text-[10px]">{notes?.length || 0}</Badge><Button size="icon" variant="ghost" className="h-7 w-7 bg-accent/10 text-accent hover:bg-accent/20 rounded-full" onClick={() => setIsNoteAddDialogOpen(true)}><Plus className="h-4 w-4" /></Button></div></div><ScrollArea className="h-[600px] pr-4"><div className="space-y-4">{notes?.length === 0 ? <div className="text-center py-20 bg-muted/10 rounded-2xl border border-dashed border-border/50 text-xs text-muted-foreground italic">No history recorded yet.</div> : notes?.map(note => (<Card key={note.id} className="bg-card/30 border-border/50 hover:border-accent/30 transition-all"><CardContent className="p-4 space-y-2"><div className="flex justify-between items-center text-[9px] uppercase font-black tracking-widest text-muted-foreground"><span>{note.authorName}</span><span>{note.createdAt ? format(new Date(note.createdAt), 'MMM d, h:mm a') : '—'}</span></div><p className="text-xs leading-relaxed text-foreground/90 whitespace-pre-wrap">{note.text}</p>{note.attachments && note.attachments.length > 0 && (<div className="flex flex-wrap gap-2 mt-2 pt-2 border-t border-border/20">{note.attachments.map(a => <AttachmentThumbnail key={a.id} attachment={a} />)}</div>)}</CardContent></Card>))}</div></ScrollArea></div>
-          <div className="space-y-4"><div className="flex items-center justify-between px-2"><h3 className="font-headline text-xl text-white flex items-center gap-2"><DollarSign className="h-5 w-5 text-emerald-500" /> Project Ledger</h3><div className="flex items-center gap-2"><Badge variant="outline" className="bg-muted/30 text-[10px]">{billableEntries.length + printEntries.length}</Badge><div className="flex gap-1"><Button size="icon" variant="ghost" className="h-7 w-7 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 rounded-full" onClick={() => setIsAddBillableDialogOpen(true)} title="Log Hours"><Clock className="h-4 w-4" /></Button><Button size="icon" variant="ghost" className="h-7 w-7 bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20 rounded-full" onClick={() => setIsAddPrintDialogOpen(true)} title="Log Prints"><Plus className="h-4 w-4" /></Button></div></div></div><div className="grid grid-cols-2 gap-2 mb-2 px-2">{Object.entries(hourTotals).map(([status, total]) => (<div key={status} className="bg-card/40 p-2.5 rounded-xl border border-border/50 flex flex-col justify-between h-16 shadow-sm"><p className="text-[8px] uppercase font-black text-muted-foreground leading-none tracking-widest">{status}</p><div className="flex items-baseline justify-between"><p className={cn("text-lg font-headline font-bold tabular-nums", status === 'Paid' ? 'text-emerald-500' : status === 'Past Due' ? 'text-rose-500' : status === 'Invoice Sent' ? 'text-sky-500' : 'text-amber-500')}>{total.toFixed(1)}<span className="text-[10px] ml-0.5 opacity-70">h</span></p><div className={cn("h-1.5 w-1.5 rounded-full", status === 'Paid' ? 'bg-emerald-500' : status === 'Past Due' ? 'bg-rose-500' : status === 'Invoice Sent' ? 'bg-sky-500' : 'bg-amber-500')} /></div></div>))}</div><ScrollArea className="h-[480px] pr-4"><div className="space-y-4">{[...billableEntries, ...printEntries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(entry => { const effStatus = getEffectiveInvoiceStatus(entry); const isPastDue = effStatus === 'Past Due'; const isPaid = effStatus === 'Paid'; return (<Card key={entry.id} onClick={() => 'hours' in entry ? setEditingBillable(entry as BillableEntry) : setEditingPrint(entry as PrintEntry)} className={cn("bg-card/30 border-border/50 hover:border-emerald-500/30 cursor-pointer", isPastDue && "border-rose-500/20 bg-rose-500/5", isPaid && "border-emerald-500/20 bg-emerald-500/5 opacity-80")}><CardContent className="p-4 space-y-2"><div className="flex justify-between items-start"><div className="space-y-0.5"><p className={cn("text-xs font-bold", isPastDue ? "text-rose-500" : "text-white")}>{'hours' in entry ? `${entry.hours.toFixed(2)}h - Service` : `${entry.sheets} Sheets - Print`}</p><p className="text-[10px] text-muted-foreground">{entry.date ? format(new Date(entry.date), 'MMM d, yyyy') : '—'}</p></div><Badge variant="outline" className={cn("text-[8px] uppercase font-bold", isPastDue ? "border-rose-500 text-rose-500 animate-pulse" : isPaid ? "border-emerald-500 text-emerald-500" : "border-muted text-muted-foreground")}>{effStatus}</Badge></div><div className="flex justify-between items-end border-t border-border/20 pt-2"><span className="text-[10px] text-muted-foreground">{entry.designer}</span><div className="flex items-center gap-2">{!isPaid && <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-500 hover:bg-emerald-500/10" onClick={(e) => { e.stopPropagation(); const path = 'hours' in entry ? 'billable_hour_entries' : 'print_job_entries'; if (dataRootId) updateDocumentNonBlocking(doc(firestore, 'employees', dataRootId, path, entry.id), { status: 'Paid' }); }} title="Mark as Paid"><Check className="h-4 w-4" /></Button>}<span className={cn("text-sm font-bold tabular-nums", isPastDue ? "text-rose-500" : isPaid ? "text-emerald-500" : "text-emerald-400")}>${Number(entry.total || 0).toFixed(2)}</span></div></div></CardContent></Card>); })}{(billableEntries.length === 0 && printEntries.length === 0) && <div className="text-center py-20 bg-muted/10 rounded-2xl border border-dashed border-border/50 text-xs text-muted-foreground">No ledger entries recorded.</div>}</div></ScrollArea></div>
+          <div className="space-y-4"><div className="flex items-center justify-between px-2"><h3 className="font-headline text-xl text-white flex items-center gap-2"><DollarSign className="h-5 w-5 text-emerald-500" /> Project Ledger</h3><div className="flex items-center gap-2"><Badge variant="outline" className="bg-muted/30 text-[10px]">{billableEntries.length + printEntries.length}</Badge><div className="flex gap-1"><Button size="icon" variant="ghost" className="h-7 w-7 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 rounded-full" onClick={() => setIsAddBillableDialogOpen(true)} title="Log Hours"><Clock className="h-4 w-4" /></Button><Button size="icon" variant="ghost" className="h-7 w-7 bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20 rounded-full" onClick={() => setIsAddPrintDialogOpen(true)} title="Log Prints"><Plus className="h-4 w-4" /></Button></div></div></div><div className="grid grid-cols-2 gap-2 mb-2 px-2">{Object.entries(hourTotals).map(([status, total]) => (<div key={status} className="bg-card/40 p-2.5 rounded-xl border border-border/50 flex flex-col justify-between h-16 shadow-sm"><p className="text-[8px] uppercase font-black text-muted-foreground leading-none tracking-widest">{status}</p><div className="flex items-baseline justify-between"><p className={cn("text-lg font-headline font-bold tabular-nums", status === 'Paid' ? 'text-emerald-500' : status === 'Past Due' ? 'text-rose-500' : status === 'Invoice Sent' ? 'text-sky-500' : 'text-amber-500')}>{total.toFixed(1)}<span className="text-[10px] ml-0.5 opacity-70">h</span></p><div className={cn("h-1.5 w-1.5 rounded-full", status === 'Paid' ? 'bg-emerald-500' : status === 'Past Due' ? 'bg-rose-500' : status === 'Invoice Sent' ? 'bg-sky-500' : 'bg-amber-500')} /></div></div>))}</div><ScrollArea className="h-[480px] pr-4"><div className="space-y-4">{[...billableEntries, ...printEntries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(entry => { const effStatus = getEffectiveInvoiceStatus(entry); const isPastDue = effStatus === 'Past Due'; const isPaid = effStatus === 'Paid'; return (<Card key={entry.id} onClick={() => { if ('hours' in entry) router.push(`/?tab=billing&billableId=${encodeURIComponent((entry as BillableEntry).id)}`); else router.push('/?tab=billing'); }} className={cn("bg-card/30 border-border/50 hover:border-emerald-500/30 cursor-pointer", isPastDue && "border-rose-500/20 bg-rose-500/5", isPaid && "border-emerald-500/20 bg-emerald-500/5 opacity-80")}><CardContent className="p-4 space-y-2"><div className="flex justify-between items-start"><div className="space-y-0.5"><p className={cn("text-xs font-bold", isPastDue ? "text-rose-500" : "text-white")}>{'hours' in entry ? `${entry.hours.toFixed(2)}h - Service` : `${entry.sheets} Sheets - Print`}</p><p className="text-[10px] text-muted-foreground">{entry.date ? format(new Date(entry.date), 'MMM d, yyyy') : '—'}</p></div><Badge variant="outline" className={cn("text-[8px] uppercase font-bold", isPastDue ? "border-rose-500 text-rose-500 animate-pulse" : isPaid ? "border-emerald-500 text-emerald-500" : "border-muted text-muted-foreground")}>{effStatus}</Badge></div><div className="flex justify-between items-end border-t border-border/20 pt-2"><span className="text-[10px] text-muted-foreground">{entry.designer}</span><div className="flex items-center gap-2">{!isPaid && <Button variant="ghost" size="icon" className="h-7 w-7 text-emerald-500 hover:bg-emerald-500/10" onClick={(e) => { e.stopPropagation(); const path = 'hours' in entry ? 'billable_hour_entries' : 'print_job_entries'; if (dataRootId) updateDocumentNonBlocking(doc(firestore, 'employees', dataRootId, path, entry.id), { status: 'Paid' }); }} title="Mark as Paid"><Check className="h-4 w-4" /></Button>}<span className={cn("text-sm font-bold tabular-nums", isPastDue ? "text-rose-500" : isPaid ? "text-emerald-500" : "text-emerald-400")}>${Number(entry.total || 0).toFixed(2)}</span></div></div></CardContent></Card>); })}{(billableEntries.length === 0 && printEntries.length === 0) && <div className="text-center py-20 bg-muted/10 rounded-2xl border border-dashed border-border/50 text-xs text-muted-foreground">No ledger entries recorded.</div>}</div></ScrollArea></div>
         </div>
       </main>
       <QuickTaskDialog open={isAddTaskDialogOpen} onOpenChange={setIsTaskAddDialogOpen} projectId={projectId} clientId={project.clientId} designer={project.designer || 'Jeff Dillon'} dataRootId={dataRootId} />
       <QuickNoteDialog open={isNoteAddDialogOpen} onOpenChange={setIsNoteAddDialogOpen} projectId={projectId} authorName={`${myEmployee?.firstName} ${myEmployee?.lastName}`} dataRootId={dataRootId} />
-      <QuickBillableDialog open={isAddBillableDialogOpen} onOpenChange={setIsAddBillableDialogOpen} projectId={projectId} clientId={project.clientId} designer={project.designer || 'Jeff Dillon'} dataRootId={dataRootId} hourlyRate={project.hourlyRate} />
+      <QuickBillableDialog open={isAddBillableDialogOpen} onOpenChange={setIsAddBillableDialogOpen} projectId={projectId} clientId={project.clientId} designer={project.designer || 'Jeff Dillon'} dataRootId={dataRootId} hourlyRate={project.hourlyRate} project={project} client={client ?? null} />
       <QuickPrintDialog open={isAddPrintDialogOpen} onOpenChange={setIsAddPrintDialogOpen} projectId={projectId} clientId={project.clientId} designer={project.designer || 'Jeff Dillon'} dataRootId={dataRootId} />
       <SiteAnalysisDialog
         open={isSiteAnalysisOpen}
@@ -375,12 +373,75 @@ function QuickNoteDialog({ open, onOpenChange, projectId, authorName, dataRootId
   );
 }
 
-function QuickBillableDialog({ open, onOpenChange, projectId, clientId, designer, dataRootId, hourlyRate }: { open: boolean, onOpenChange: (o: boolean) => void, projectId: string, clientId: string, designer: Designer, dataRootId: string | null, hourlyRate?: number }) {
+function resolveQuickBillableDiscount(project: Project, client: Client | null): DiscountType {
+  if (project.hasHourlyDiscount) return 'Contractor';
+  const de = client?.discountEligibility;
+  if (de === 'First Responder') return 'First Responder';
+  if (de === 'Military') return 'Military';
+  if (de === 'Home & Garden Show') return 'Home & Garden Show';
+  if (de === 'Repeat Client') return 'Repeat Client';
+  return 'None';
+}
+
+function QuickBillableDialog({ open, onOpenChange, projectId, clientId, designer, dataRootId, hourlyRate, project, client }: { open: boolean, onOpenChange: (o: boolean) => void, projectId: string, clientId: string, designer: Designer, dataRootId: string | null, hourlyRate?: number, project: Project, client: Client | null }) {
   const firestore = useFirestore(); const { toast } = useToast();
   const [hours, setHours] = useState(''); const [desc, setDesc] = useState('');
-  const handleHoursBlur = () => { const decimalValue = parseTimeToDecimal(hours); setHours(decimalValue.toFixed(2)); };
-  const handleSave = () => { if (!dataRootId || !hours) return; const h = parseFloat(hours); const rate = hourlyRate || 125; const ref = doc(collection(firestore, 'employees', dataRootId, 'billable_hour_entries')); setDocumentNonBlocking(ref, { id: ref.id, projectId, clientId, hours: h, rate, total: h * rate, description: desc, designer, status: 'Not Sent', date: new Date().toISOString(), discount: 'None', lateFee: 0 }, { merge: true }); toast({ title: "Hours Logged" }); onOpenChange(false); setHours(''); setDesc(''); };
-  return (<Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="sm:max-w-[425px]"><DialogHeader><DialogTitle>Log Billable Hours</DialogTitle></DialogHeader><div className="space-y-4 py-4"><div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Hours (e.g. 1:30)</Label><Input type="text" value={hours} onChange={e => setHours(e.target.value)} onBlur={handleHoursBlur} /></div><div className="space-y-2"><Label>Rate ($)</Label><Input value={hourlyRate || 125} disabled /></div></div><div className="space-y-2"><Label>Work Performed</Label><Textarea value={desc} onChange={e => setDesc(e.target.value)} /></div></div><DialogFooter><Button onClick={handleSave} className="bg-primary">Record Entry</Button></DialogFooter></DialogContent></Dialog>);
+  const baseRate = hourlyRate != null && hourlyRate > 0 ? hourlyRate : 125;
+  const discount = resolveQuickBillableDiscount(project, client);
+  const effectiveRate = discount !== 'None' ? Math.max(0, baseRate - 15) : baseRate;
+  const handleHoursBlur = () => { const decimalValue = parseTimeToDecimal(hours); setHours(decimalValue ? decimalValue.toFixed(2) : ''); };
+  const handleSave = () => {
+    if (!dataRootId || !hours.trim()) return;
+    const h = parseTimeToDecimal(hours);
+    if (h <= 0) return;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const lineLabel = desc.trim() || 'Work logged';
+    const lineItems = [{ id: `line-${Date.now()}`, date: dateStr, hours: h, description: lineLabel }];
+    const combinedDescription = `- ${dateStr} | ${h.toFixed(2)}h | ${lineLabel}`;
+    const total = h * effectiveRate;
+    const ref = doc(collection(firestore, 'employees', dataRootId, 'billable_hour_entries'));
+    setDocumentNonBlocking(ref, {
+      id: ref.id,
+      projectId,
+      clientId,
+      hours: h,
+      rate: effectiveRate,
+      total,
+      description: combinedDescription,
+      designer,
+      status: 'Not Sent',
+      date: dateStr,
+      discount,
+      lateFee: 0,
+      lineItems,
+    }, { merge: true });
+    toast({ title: "Hours Logged" });
+    onOpenChange(false);
+    setHours('');
+    setDesc('');
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader><DialogTitle>Log Billable Hours</DialogTitle></DialogHeader>
+        <div className="space-y-4 py-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2"><Label>Hours (e.g. 1:30)</Label><Input type="text" value={hours} onChange={e => setHours(e.target.value)} onBlur={handleHoursBlur} /></div>
+            <div className="space-y-2"><Label>Base rate ($)</Label><Input value={String(baseRate)} disabled /></div>
+          </div>
+          {discount !== 'None' && (
+            <p className="text-xs text-muted-foreground">
+              Discount: <span className="font-semibold text-foreground">{discount}</span>
+              {' — '}
+              billing at <span className="font-semibold text-accent">${effectiveRate.toFixed(2)}/hr</span> ($15 off base)
+            </p>
+          )}
+          <div className="space-y-2"><Label>Work Performed</Label><Textarea value={desc} onChange={e => setDesc(e.target.value)} /></div>
+        </div>
+        <DialogFooter><Button onClick={handleSave} className="bg-primary">Record Entry</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function QuickPrintDialog({ open, onOpenChange, projectId, clientId, designer, dataRootId }: { open: boolean, onOpenChange: (o: boolean) => void, projectId: string, clientId: string, designer: Designer, dataRootId: string | null }) {

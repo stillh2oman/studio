@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Client, Project, BillableEntry, DiscountType, InvoiceStatus, Designer } from '@/lib/types';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -32,6 +32,9 @@ interface BillableHoursTabProps {
   onAddProject: () => void;
   onUpdateProject: (id: string, data: Partial<Project>) => void;
   canEdit?: boolean;
+  /** When set (e.g. from `/?billableId=`), opens that entry in the editor once it exists in `entries`. */
+  initialBillableEditId?: string | null;
+  onClearInitialBillableEdit?: () => void;
 }
 
 const DESIGNERS: Designer[] = ["Jeff Dillon", "Kevin Walthall"].sort() as Designer[];
@@ -76,7 +79,9 @@ export function BillableHoursTab({
   onUpdateStatus, 
   onAddProject, 
   onUpdateProject,
-  canEdit = true 
+  canEdit = true,
+  initialBillableEditId = null,
+  onClearInitialBillableEdit,
 }: BillableHoursTabProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState('');
@@ -242,10 +247,10 @@ export function BillableHoursTab({
     setLineItems([{ id: 'line-1', date: new Date().toISOString().slice(0, 10), hoursInput: '', description: '' }]);
   };
 
-  const handleEdit = (entry: BillableEntry) => {
+  const loadEntryForEdit = useCallback((entry: BillableEntry) => {
     const proj = projects.find(p => p.id === entry.projectId);
-    setEditingId(entry.id); 
-    setProjectId(entry.projectId); 
+    setEditingId(entry.id);
+    setProjectId(entry.projectId);
     const existingLines = Array.isArray((entry as any).lineItems) && (entry as any).lineItems.length
       ? (entry as any).lineItems.map((line: any, idx: number) => ({
           id: line.id || `line-edit-${idx}`,
@@ -256,15 +261,30 @@ export function BillableHoursTab({
       : [{ id: 'line-edit-1', date: String(entry.date || '').slice(0, 10), hoursInput: String(entry.hours || ''), description: entry.description || '' }];
     setLineItems(existingLines);
     const restoredBaseRate = entry.discount !== 'None' ? entry.rate + 15 : entry.rate;
-    setRate(restoredBaseRate.toString()); 
-    setSqFtInput(proj?.currentHeatedSqFt?.toString() || ''); 
-    setDescription(entry.description || ''); 
-    setStatus(entry.status); 
-    setDesigner(entry.designer); 
-    setDiscount(entry.discount || 'None'); 
-    setSentDate(entry.sentDate || ''); 
+    setRate(restoredBaseRate.toString());
+    setSqFtInput(proj?.currentHeatedSqFt?.toString() || '');
+    setDescription(entry.description || '');
+    setStatus(entry.status);
+    setDesigner(entry.designer);
+    setDiscount(entry.discount || 'None');
+    setSentDate(entry.sentDate || '');
     setLateFeeAmount(entry.lateFee || 0);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [projects]);
+
+  useEffect(() => {
+    if (!initialBillableEditId) return;
+    const entry = entries.find(e => e.id === initialBillableEditId);
+    if (entry) {
+      loadEntryForEdit(entry);
+      onClearInitialBillableEdit?.();
+      return;
+    }
+    if (entries.length > 0) onClearInitialBillableEdit?.();
+  }, [initialBillableEditId, entries, loadEntryForEdit, onClearInitialBillableEdit]);
+
+  const handleEdit = (entry: BillableEntry) => {
+    loadEntryForEdit(entry);
   };
 
   const handleSort = (key: string) => { setSortConfig(prev => (prev?.key === key && prev.direction === 'asc') ? { key, direction: 'desc' } : { key, direction: 'asc' }); };

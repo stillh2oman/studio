@@ -2,7 +2,7 @@
 "use client"
 
 import React, { useState, useEffect, useMemo, Suspense } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TasksTab } from '@/components/tasks/tasks-tab';
@@ -203,6 +203,7 @@ function LedgerCommandCenter() {
   const firestore = useFirestore();
   const { toast } = useToast();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isRecording, recordingTime, startRecording, stopRecording, openVoiceNoteDialog } = useVoiceNote();
   const [activeTab, setActiveTab] = useState('home');
   const [isClientDialogOpen, setIsClientDialogOpen] = useState(false);
@@ -213,6 +214,7 @@ function LedgerCommandCenter() {
   const [editingContractor, setEditingContractor] = useState<Contractor | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [initialTaskId, setInitialTaskId] = useState<string | null>(null);
+  const [initialBillableEditId, setInitialBillableEditId] = useState<string | null>(null);
   const [designerFilter, setDesignerFilter] = useState<Designer | 'All'>('All');
   const [projectSortConfig, setProjectSortConfig] = useState<SortConfig<Project>>(null);
   const [clientSortConfig, setClientSortConfig] = useState<SortConfig<Client>>(null);
@@ -335,6 +337,27 @@ function LedgerCommandCenter() {
     else if (activeTab === 'reports' && !canSeeReportsTab) setActiveTab('home');
     else if (activeTab === 'plan_database') setActiveTab('home');
   }, [user, activeTab, canSeeBillingTab, canSeeInboxTab, canSeeFirmCommand, canSeeReportsTab]);
+
+  useEffect(() => {
+    if (isUserLoading) return;
+    const bid = searchParams.get('billableId');
+    const tab = searchParams.get('tab');
+    if (bid) {
+      if (!canSeeBillingTab) {
+        router.replace('/', { scroll: false });
+        return;
+      }
+      setActiveTab('billing');
+      setInitialBillableEditId(bid);
+      router.replace('/', { scroll: false });
+      return;
+    }
+    if (tab === 'billing' && canSeeBillingTab) {
+      setActiveTab('billing');
+      router.replace('/', { scroll: false });
+    }
+  }, [searchParams, canSeeBillingTab, router, isUserLoading]);
+
   useEffect(() => {
     if (!isBoss || !dataRootId) return;
     const key = `di_client_schema_migrated_v2_${dataRootId}`;
@@ -1035,6 +1058,8 @@ function LedgerCommandCenter() {
                     onUpdateStatus={updateBillableEntryStatus} 
                     onAddProject={() => setIsProjectDialogOpen(true)} 
                     onUpdateProject={updateProject}
+                    initialBillableEditId={initialBillableEditId}
+                    onClearInitialBillableEdit={() => setInitialBillableEditId(null)}
                   />
                 </TabsContent>
                 <TabsContent value="printing">
