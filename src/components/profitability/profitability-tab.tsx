@@ -23,6 +23,7 @@ interface ProfitabilityTabProps {
   onAddPayroll: (entry: Omit<PayrollEntry, 'id'>) => void;
   onDeletePayroll: (id: string) => void;
   onAddCost: (cost: Omit<MonthlyCost, 'id'>) => void;
+  onUpdateCost: (id: string, patch: Partial<MonthlyCost>) => void;
   onDeleteCost: (id: string) => void;
   onAddIncome: (inc: Omit<MonthlyIncome, 'id'>) => void;
   onDeleteIncome: (id: string) => void;
@@ -34,7 +35,7 @@ interface ProfitabilityTabProps {
 export function ProfitabilityTab({ 
   employees = [], payroll = [], costs = [], income = [], leaveBanks = [],
   onAddPayroll, onDeletePayroll, 
-  onAddCost, onDeleteCost, 
+  onAddCost, onUpdateCost, onDeleteCost, 
   onAddIncome, onDeleteIncome,
   onUpdateLeaveBank,
   canEdit = true,
@@ -47,6 +48,7 @@ export function ProfitabilityTab({
   const [costMonth, setCostMonth] = useState('');
   const [insurance, setInsurance] = useState('');
   const [taxes, setTaxes] = useState('');
+  const [rent, setRent] = useState('');
   const [otherCost, setOtherCost] = useState('');
   const [incomeMonth, setIncomeMonth] = useState('');
   const [billedHours, setBilledHours] = useState('');
@@ -99,7 +101,7 @@ export function ProfitabilityTab({
       const empCosts = (costs || []).filter(c => c.employeeId === emp.id);
       const empIncome = (income || []).filter(i => i.employeeId === emp.id);
       const totalPayroll = empPayroll.reduce((acc, p) => acc + safeNum(p.amount), 0);
-      const totalOverhead = empCosts.reduce((acc, c) => acc + safeNum(c.insurance) + safeNum(c.taxes) + safeNum(c.other), 0);
+      const totalOverhead = empCosts.reduce((acc, c) => acc + safeNum(c.insurance) + safeNum(c.taxes) + safeNum(c.rent) + safeNum(c.other), 0);
       const totalRevenue = empIncome.reduce((acc, i) => acc + safeNum(i.totalIncome), 0);
       const totalHours = empIncome.reduce((acc, i) => acc + safeNum(i.billedHours), 0);
       const totalCost = totalPayroll + totalOverhead;
@@ -107,6 +109,60 @@ export function ProfitabilityTab({
       return { id: emp.id, name: `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Unnamed Staff', totalCost, totalRevenue, lifetimeProfit, totalHours };
     });
   }, [filteredEmployees, payroll, costs, income]);
+
+  const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+  useEffect(() => {
+    if (!canEdit) return;
+    if (!employees || employees.length === 0) return;
+    if (!costs) return;
+
+    const now = new Date();
+    const yearStart = new Date(now.getFullYear(), 0, 1);
+    const currentMonth = monthKey(now);
+    const includeCurrentMonth = now.getDate() >= 8;
+
+    const targets = [
+      { first: 'sarah', last: 'vande', amount: 818.88 },
+      { first: 'chris', last: 'flem', amount: 496.14 },
+      { first: 'jeff', last: 'dillon', amount: 2140.14 },
+    ];
+
+    const matched = targets
+      .map(t => {
+        const emp = (employees || []).find(e => {
+          const fn = String(e.firstName || '').toLowerCase();
+          const ln = String(e.lastName || '').toLowerCase();
+          return fn.includes(t.first) && ln.includes(t.last);
+        });
+        return emp ? { employeeId: emp.id, amount: t.amount } : null;
+      })
+      .filter(Boolean) as Array<{ employeeId: string; amount: number }>;
+
+    if (matched.length === 0) return;
+
+    const months: string[] = [];
+    const cursor = new Date(yearStart);
+    while (true) {
+      const mk = monthKey(cursor);
+      if (mk !== currentMonth || includeCurrentMonth) months.push(mk);
+      if (mk === currentMonth) break;
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+
+    for (const { employeeId, amount } of matched) {
+      for (const m of months) {
+        const existing = (costs || []).find(c => c.employeeId === employeeId && c.month === m);
+        if (!existing) {
+          onAddCost({ employeeId, month: m, insurance: amount, taxes: 0, rent: 0, other: 0 } as any);
+          continue;
+        }
+        if (Math.abs(safeNum(existing.insurance) - amount) > 0.005) {
+          onUpdateCost(existing.id, { insurance: amount });
+        }
+      }
+    }
+  }, [canEdit, employees, costs, onAddCost, onUpdateCost]);
 
   const handleAddPayroll = (e: React.FormEvent) => {
     e.preventDefault();
@@ -118,8 +174,8 @@ export function ProfitabilityTab({
   const handleAddCost = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canEdit || !selectedEmployeeId || !costMonth) return;
-    onAddCost({ employeeId: selectedEmployeeId, month: costMonth, insurance: safeNum(insurance), taxes: safeNum(taxes), other: safeNum(otherCost) });
-    setInsurance(''); setTaxes(''); setOtherCost('');
+    onAddCost({ employeeId: selectedEmployeeId, month: costMonth, insurance: safeNum(insurance), taxes: safeNum(taxes), rent: safeNum(rent), other: safeNum(otherCost) } as any);
+    setInsurance(''); setTaxes(''); setRent(''); setOtherCost('');
   };
 
   const handleAddIncome = (e: React.FormEvent) => {
@@ -206,8 +262,13 @@ export function ProfitabilityTab({
                   {employeeStats.length === 0 ? (
                     <TableRow><TableCell colSpan={5} className="text-center h-32 text-muted-foreground italic"><div className="flex flex-col items-center gap-2"><Loader2 className="h-5 w-5 animate-spin text-primary" /><span>Synchronizing employee database...</span></div></TableCell></TableRow>
                   ) : employeeStats.map(stat => (
-                    <TableRow key={stat.id} className={cn(selectedEmployeeId === stat.id && "bg-primary/5")}>
-                      <TableCell className="font-bold">{stat.name}</TableCell>
+                    <TableRow
+                      key={stat.id}
+                      className={cn("cursor-pointer", selectedEmployeeId === stat.id && "bg-primary/5")}
+                      onClick={() => setSelectedEmployeeId(stat.id)}
+                      title="Click for cost vs income breakdown"
+                    >
+                      <TableCell className="font-bold underline-offset-4 hover:underline">{stat.name}</TableCell>
                       <TableCell className="text-right tabular-nums">{safeNum(stat.totalHours).toFixed(1)}</TableCell>
                       <TableCell className="text-right tabular-nums text-rose-400">-${safeNum(stat.totalCost).toLocaleString()}</TableCell>
                       <TableCell className="text-right tabular-nums text-emerald-400">+${safeNum(stat.totalRevenue).toLocaleString()}</TableCell>
@@ -227,7 +288,7 @@ export function ProfitabilityTab({
                 <TabsTrigger value="income" className="rounded-lg px-6 h-10">Revenue Entry</TabsTrigger>
               </TabsList>
               <TabsContent value="payroll"><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><Card className="border-border/50 bg-card/30"><CardHeader><CardTitle className="text-lg">Add Pay Period</CardTitle></CardHeader><CardContent><form onSubmit={handleAddPayroll} className="space-y-4"><div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Period End Date</Label><Input type="date" value={payrollDate} onChange={e => setPayrollDate(e.target.value)} required /></div><div className="space-y-2"><Label>Net Pay ($)</Label><Input type="number" step="0.01" value={payrollAmount} onChange={e => setPayrollAmount(e.target.value)} placeholder="0.00" required /></div></div><Button type="submit" className="w-full gap-2"><Plus className="h-4 w-4" /> Log Bi-Weekly Pay</Button></form></CardContent></Card><Card className="border-border/50 bg-card/30"><CardHeader><CardTitle className="text-lg">Recent Payroll</CardTitle></CardHeader><CardContent className="p-0"><div className="max-h-[300px] overflow-auto"><Table><TableBody>{payroll.filter(p => p.employeeId === selectedEmployeeId).length === 0 && (<TableRow><TableCell className="text-center py-8 text-muted-foreground italic">No payroll entries found.</TableCell></TableRow>)}{payroll.filter(p => p.employeeId === selectedEmployeeId).map(p => (<TableRow key={p.id}><TableCell className="text-xs">{p.date ? new Date(p.date).toLocaleDateString() : '—'}</TableCell><TableCell className="font-bold text-rose-400">-${safeNum(p.amount).toLocaleString()}</TableCell><TableCell className="text-right"><Button variant="ghost" size="icon" onClick={() => onDeletePayroll(p.id)} className="text-rose-500 h-8 w-8"><Trash2 className="h-4 w-4" /></Button></TableCell></TableRow>))}</TableBody></Table></div></CardContent></Card></div></TabsContent>
-              <TabsContent value="costs"><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><Card className="border-border/50 bg-card/30"><CardHeader><CardTitle className="text-lg">Monthly Fixed Overhead</CardTitle></CardHeader><CardContent><form onSubmit={handleAddCost} className="space-y-4"><div className="space-y-2"><Label>Month</Label><Input type="month" value={costMonth} onChange={e => setCostMonth(e.target.value)} required /></div><div className="grid grid-cols-3 gap-2"><div className="space-y-1"><Label className="text-[10px]">Insurance</Label><Input type="number" step="0.01" value={insurance} onChange={e => setInsurance(e.target.value)} placeholder="0" /></div><div className="space-y-1"><Label className="text-[10px]">Taxes</Label><Input type="number" step="0.01" value={taxes} onChange={e => setTaxes(e.target.value)} placeholder="0" /></div><div className="space-y-1"><Label className="text-[10px]">Other</Label><Input type="number" step="0.01" value={otherCost} onChange={e => setOtherCost(e.target.value)} placeholder="0" /></div></div><Button type="submit" className="w-full gap-2 bg-secondary hover:bg-secondary/80"><Plus className="h-4 w-4" /> Save Monthly Fixed Costs</Button></form></CardContent></Card><Card className="border-border/50 bg-card/30"><CardHeader><CardTitle className="text-lg">Cost History</CardTitle></CardHeader><CardContent className="p-0"><div className="max-h-[300px] overflow-auto"><Table><TableBody>{costs.filter(c => c.employeeId === selectedEmployeeId).length === 0 && (<TableRow><TableCell className="text-center py-8 text-muted-foreground italic">No cost entries found.</TableCell></TableRow>)}{costs.filter(c => c.employeeId === selectedEmployeeId).map(c => (<TableRow key={c.id}><TableCell className="text-xs font-bold">{c.month}</TableCell><TableCell className="text-xs"><div className="text-[10px] text-muted-foreground">Ins: ${safeNum(c.insurance)} | Tax: ${safeNum(c.taxes)} | Other: ${safeNum(c.other)}</div><div className="font-bold text-rose-400">Total: -${(safeNum(c.insurance) + safeNum(c.taxes) + safeNum(c.other)).toLocaleString()}</div></TableCell><TableCell className="text-right"><Button variant="ghost" size="icon" onClick={() => onDeleteCost(c.id)} className="text-rose-500 h-8 w-8"><Trash2 className="h-4 w-4" /></Button></TableCell></TableRow>))}</TableBody></Table></div></CardContent></Card></div></TabsContent>
+              <TabsContent value="costs"><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><Card className="border-border/50 bg-card/30"><CardHeader><CardTitle className="text-lg">Monthly Fixed Overhead</CardTitle></CardHeader><CardContent><form onSubmit={handleAddCost} className="space-y-4"><div className="space-y-2"><Label>Month</Label><Input type="month" value={costMonth} onChange={e => setCostMonth(e.target.value)} required /></div><div className="grid grid-cols-4 gap-2"><div className="space-y-1"><Label className="text-[10px]">Insurance</Label><Input type="number" step="0.01" value={insurance} onChange={e => setInsurance(e.target.value)} placeholder="0" /></div><div className="space-y-1"><Label className="text-[10px]">Taxes</Label><Input type="number" step="0.01" value={taxes} onChange={e => setTaxes(e.target.value)} placeholder="0" /></div><div className="space-y-1"><Label className="text-[10px]">Rent</Label><Input type="number" step="0.01" value={rent} onChange={e => setRent(e.target.value)} placeholder="0" /></div><div className="space-y-1"><Label className="text-[10px]">Other</Label><Input type="number" step="0.01" value={otherCost} onChange={e => setOtherCost(e.target.value)} placeholder="0" /></div></div><Button type="submit" className="w-full gap-2 bg-secondary hover:bg-secondary/80"><Plus className="h-4 w-4" /> Save Monthly Fixed Costs</Button></form></CardContent></Card><Card className="border-border/50 bg-card/30"><CardHeader><CardTitle className="text-lg">Cost History</CardTitle></CardHeader><CardContent className="p-0"><div className="max-h-[300px] overflow-auto"><Table><TableBody>{costs.filter(c => c.employeeId === selectedEmployeeId).length === 0 && (<TableRow><TableCell className="text-center py-8 text-muted-foreground italic">No cost entries found.</TableCell></TableRow>)}{costs.filter(c => c.employeeId === selectedEmployeeId).map(c => (<TableRow key={c.id}><TableCell className="text-xs font-bold">{c.month}</TableCell><TableCell className="text-xs"><div className="text-[10px] text-muted-foreground">Ins: ${safeNum(c.insurance)} | Tax: ${safeNum(c.taxes)} | Rent: ${safeNum(c.rent)} | Other: ${safeNum(c.other)}</div><div className="font-bold text-rose-400">Total: -${(safeNum(c.insurance) + safeNum(c.taxes) + safeNum(c.rent) + safeNum(c.other)).toLocaleString()}</div></TableCell><TableCell className="text-right"><Button variant="ghost" size="icon" onClick={() => onDeleteCost(c.id)} className="text-rose-500 h-8 w-8"><Trash2 className="h-4 w-4" /></Button></TableCell></TableRow>))}</TableBody></Table></div></CardContent></Card></div></TabsContent>
               <TabsContent value="income"><div className="grid grid-cols-1 md:grid-cols-2 gap-6"><Card className="border-border/50 bg-card/30"><CardHeader><CardTitle className="text-lg">Monthly Revenue Entry</CardTitle></CardHeader><CardContent><form onSubmit={handleAddIncome} className="space-y-4"><div className="space-y-2"><Label>Month</Label><Input type="month" value={incomeMonth} onChange={e => setIncomeMonth(e.target.value)} required /></div><div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Billed Hours</Label><Input type="number" step="0.1" value={billedHours} onChange={e => setBilledHours(e.target.value)} placeholder="0.0" required /></div><div className="space-y-2"><Label>Total Income ($)</Label><Input type="number" step="0.01" value={totalIncome} onChange={e => setTotalIncome(e.target.value)} placeholder="0.00" required /></div></div><Button type="submit" className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"><Plus className="h-4 w-4" /> Record Revenue</Button></form></CardContent></Card><Card className="border-border/50 bg-card/30"><CardHeader><CardTitle className="text-lg">Revenue History</CardTitle></CardHeader><CardContent className="p-0"><div className="max-h-[300px] overflow-auto"><Table><TableBody>{income.filter(i => i.employeeId === selectedEmployeeId).length === 0 && (<TableRow><TableCell className="text-center py-8 text-muted-foreground italic">No revenue entries found.</TableCell></TableRow>)}{income.filter(i => i.employeeId === selectedEmployeeId).map(i => (<TableRow key={i.id}><TableCell className="text-xs font-bold">{i.month}</TableCell><TableCell className="text-xs"><div className="text-[10px] text-muted-foreground">{safeNum(i.billedHours)} Hours Billed</div><div className="font-bold text-emerald-400">+${safeNum(i.totalIncome).toLocaleString()}</div></TableCell><TableCell className="text-right"><Button variant="ghost" size="icon" onClick={() => onDeleteIncome(i.id)} className="text-rose-500 h-8 w-8"><Trash2 className="h-4 w-4" /></Button></TableCell></TableRow>))}</TableBody></Table></div></CardContent></Card></div></TabsContent>
             </Tabs>
           )}

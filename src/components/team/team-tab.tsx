@@ -115,7 +115,7 @@ export function TeamTab({
   const [sortConfig, setSortConfig] = useState<SortConfig>(null);
   const restoreInputRef = useRef<HTMLInputElement>(null);
 
-  const { addEmployee, updateEmployee, deleteEmployee } = useLedgerData();
+  const { addEmployee, updateEmployee, deleteEmployee, updateMonthlyCost } = useLedgerData();
 
   const sortedEmployees = useMemo(() => {
     let items = [...(allEmployees || [])];
@@ -258,7 +258,7 @@ export function TeamTab({
         </TabsContent>
 
         <TabsContent value="profit">
-          <ProfitabilityTab employees={allEmployees} payroll={payroll} costs={costs} income={income} leaveBanks={leaveBanks} onAddPayroll={onAddPayroll} onDeletePayroll={onDeletePayroll} onAddCost={onAddCost} onDeleteCost={onDeleteCost} onAddIncome={onAddIncome} onDeleteIncome={onDeleteIncome} onUpdateLeaveBank={onUpdateLeaveBank} canEdit={canEditProfitability} isBoss={isBoss} />
+          <ProfitabilityTab employees={allEmployees} payroll={payroll} costs={costs} income={income} leaveBanks={leaveBanks} onAddPayroll={onAddPayroll} onDeletePayroll={onDeletePayroll} onAddCost={onAddCost} onUpdateCost={updateMonthlyCost} onDeleteCost={onDeleteCost} onAddIncome={onAddIncome} onDeleteIncome={onDeleteIncome} onUpdateLeaveBank={onUpdateLeaveBank} canEdit={canEditProfitability} isBoss={isBoss} />
         </TabsContent>
 
         <TabsContent value="maintenance" className="space-y-6">

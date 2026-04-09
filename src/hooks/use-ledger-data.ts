@@ -1489,6 +1489,10 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
       const ref = doc(collection(firestore, 'employees', dataRootId, 'monthly_costs'));
       setDocumentNonBlocking(ref, { ...c, id: ref.id }, { merge: true });
     },
+    updateMonthlyCost: (id: string, patch: Partial<MonthlyCost>) => {
+      if (!dataRootId) return;
+      updateDocumentNonBlocking(doc(firestore, 'employees', dataRootId, 'monthly_costs', id), patch);
+    },
     deleteMonthlyCost: (id: string) => {
       if (!dataRootId) return;
       deleteDocumentNonBlocking(doc(firestore, 'employees', dataRootId, 'monthly_costs', id));

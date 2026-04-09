@@ -213,6 +213,7 @@ export interface MonthlyCost {
   month: string; 
   insurance: number;
   taxes: number;
+  rent?: number;
   other: number;
 }
 
