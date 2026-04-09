@@ -513,6 +513,17 @@ export interface TemplateChangeRequest {
   createdAt: string;
 }
 
+/** Firm-curated template files (Dropbox share links) for team download from the Templates tab. */
+export interface FirmTemplateDownload {
+  id: string;
+  title: string;
+  dropboxUrl: string;
+  description?: string;
+  sortOrder?: number;
+  updatedAt: string;
+  createdAt: string;
+}
+
 export interface Plan {
   id: string;
   projectName: string;

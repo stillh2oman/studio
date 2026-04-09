@@ -28,7 +28,7 @@ import {
 } from '@/firebase';
 import { 
   Client, Project, BillableEntry, PrintEntry, Task, Employee, TextTemplate, 
-  TemplateChangeRequest, Plan, 
+  TemplateChangeRequest, FirmTemplateDownload, Plan, 
   PayrollEntry, MonthlyCost, MonthlyIncome, CalendarEvent, 
   PasswordEntry, LeaveBank, SupplyItem, EmployeeWorkStatus, 
   Message, ProjectNote, ReferenceDocument, IntegrationConfig, 
@@ -221,6 +221,10 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
   const incomeRef = useMemoFirebase(() => dataRootId ? collection(firestore, 'employees', dataRootId, 'monthly_income') : null, [firestore, dataRootId]);
   const textTemplatesRef = useMemoFirebase(() => dataRootId ? collection(firestore, 'employees', dataRootId, 'text_templates') : null, [firestore, dataRootId]);
   const templateRequestsRef = useMemoFirebase(() => dataRootId ? collection(firestore, 'employees', dataRootId, 'template_requests') : null, [firestore, dataRootId]);
+  const firmTemplateDownloadsRef = useMemoFirebase(
+    () => (dataRootId ? collection(firestore, 'employees', dataRootId, 'firm_template_downloads') : null),
+    [firestore, dataRootId],
+  );
   const passwordVaultRef = useMemoFirebase(() => dataRootId ? collection(firestore, 'employees', dataRootId, 'password_vault') : null, [firestore, dataRootId]);
   const messagesRef = useMemoFirebase(() => dataRootId ? collection(firestore, 'employees', dataRootId, 'messages') : null, [firestore, dataRootId]);
   const referenceLibraryRef = useMemoFirebase(() => dataRootId ? collection(firestore, 'employees', dataRootId, 'reference_library') : null, [firestore, dataRootId]);
@@ -267,6 +271,7 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
   const { data: incomeRaw } = useCollection<MonthlyIncome>(incomeRef);
   const { data: templatesRaw } = useCollection<TextTemplate>(textTemplatesRef);
   const { data: templateReqsRaw } = useCollection<TemplateChangeRequest>(templateRequestsRef);
+  const { data: firmTemplateDownloadsRaw } = useCollection<FirmTemplateDownload>(firmTemplateDownloadsRef);
   const { data: vaultRaw } = useCollection<PasswordEntry>(passwordVaultRef);
   const { data: messagesRaw } = useCollection<Message>(messagesRef);
   const { data: libraryRaw } = useCollection<ReferenceDocument>(referenceLibraryRef);
@@ -606,7 +611,7 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
       'clients', 'contractors', 'projects', 'tasks', 'billable_hour_entries', 'print_job_entries',
       'archived_billable_hour_entries', 'archived_print_job_entries', 'calendar_events',
       'plans', 'supplies', 'leave_banks', 'payroll_entries', 'monthly_costs',
-      'monthly_income', 'text_templates', 'template_requests', 'password_vault',
+      'monthly_income', 'text_templates', 'template_requests', 'firm_template_downloads', 'password_vault',
       'messages', 'reference_library', 'pay_period_submissions', 'timesheet_report_archive'
     ];
 
@@ -724,6 +729,7 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
       monthly_income: incomeRaw || [],
       text_templates: templatesRaw || [],
       template_requests: templateReqsRaw || [],
+      firm_template_downloads: firmTemplateDownloadsRaw || [],
       password_vault: vaultRaw || [],
       messages: messagesRaw || [],
       reference_library: libraryRaw || [],
@@ -741,7 +747,13 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
     isLoaded, clientsRaw, projectsRaw, tasksRaw, billablesRaw, printsRaw, 
     archBillablesRaw, archPrintsRaw, eventsRaw, plansRaw, suppliesRaw, 
     leaveBanksRaw, payrollRaw, costsRaw, incomeRaw, templatesRaw, contractors,
-    templateReqsRaw, vaultRaw, messagesRaw, libraryRaw, submissionsRaw, timesheetArchiveRaw,
+    templateReqsRaw,
+    firmTemplateDownloadsRaw,
+    vaultRaw,
+    messagesRaw,
+    libraryRaw,
+    submissionsRaw,
+    timesheetArchiveRaw,
     checklistTemplateData, integrationConfigData, planReviewPromptsDoc,
   ]);
 
@@ -767,6 +779,17 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
 
     return Array.from(bestByEmployee.values());
   }, [leaveBanksRaw]);
+
+  const firmTemplateDownloads = useMemo(() => {
+    const rows = [...(firmTemplateDownloadsRaw || [])];
+    rows.sort((a, b) => {
+      const ao = Number(a.sortOrder ?? 0);
+      const bo = Number(b.sortOrder ?? 0);
+      if (ao !== bo) return ao - bo;
+      return String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base' });
+    });
+    return rows;
+  }, [firmTemplateDownloadsRaw]);
 
   const archiveTimesheetPdfReport = useCallback(
     async (
@@ -959,7 +982,8 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
     costs: costsRaw || [], 
     income: incomeRaw || [], 
     textTemplates: templatesRaw || [], 
-    templateRequests: templateReqsRaw || [], 
+    templateRequests: templateReqsRaw || [],
+    firmTemplateDownloads,
     passwordVault: vaultRaw || [], 
     messagesInbox,
     messagesOutbox,
@@ -1474,6 +1498,33 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
     deleteTemplateRequest: (id: string) => {
       if (!dataRootId) return;
       deleteDocumentNonBlocking(doc(firestore, 'employees', dataRootId, 'template_requests', id));
+    },
+    addFirmTemplateDownload: (row: Omit<FirmTemplateDownload, 'id' | 'createdAt' | 'updatedAt'>) => {
+      if (!dataRootId) return;
+      const ref = doc(collection(firestore, 'employees', dataRootId, 'firm_template_downloads'));
+      const now = new Date().toISOString();
+      setDocumentNonBlocking(
+        ref,
+        {
+          ...row,
+          id: ref.id,
+          sortOrder: typeof row.sortOrder === 'number' ? row.sortOrder : 0,
+          createdAt: now,
+          updatedAt: now,
+        },
+        { merge: true },
+      );
+    },
+    updateFirmTemplateDownload: (id: string, u: Partial<FirmTemplateDownload>) => {
+      if (!dataRootId) return;
+      updateDocumentNonBlocking(doc(firestore, 'employees', dataRootId, 'firm_template_downloads', id), {
+        ...u,
+        updatedAt: new Date().toISOString(),
+      });
+    },
+    deleteFirmTemplateDownload: (id: string) => {
+      if (!dataRootId) return;
+      deleteDocumentNonBlocking(doc(firestore, 'employees', dataRootId, 'firm_template_downloads', id));
     },
     addPayroll: (p: any) => {
       if (!dataRootId) return;

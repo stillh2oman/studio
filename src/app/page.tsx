@@ -235,6 +235,7 @@ function LedgerCommandCenter() {
     payroll, costs, income, leaveBanks, addPayroll, deletePayroll, addMonthlyCost, deleteMonthlyCost, addMonthlyIncome, deleteMonthlyIncome, updateLeaveBank, rawData,
     textTemplates, addTextTemplate, updateTextTemplate, deleteTextTemplate, passwordVault, addPassword, updatePassword, deletePassword, supplies, addSupplyItem, deleteSupplyItem,
     templateRequests, addTemplateRequest, updateTemplateRequest, deleteTemplateRequest,
+    firmTemplateDownloads, addFirmTemplateDownload, updateFirmTemplateDownload, deleteFirmTemplateDownload,
     addProjectNote, updateProjectNote, deleteProjectNote,
     addTimesheetEntry, updateTimesheetEntry, deleteTimesheetEntry,
     restoreArchivedBillableEntry, restoreArchivedPrintEntry, restoreArchivedTask, restoreArchivedProject,
@@ -1101,7 +1102,18 @@ function LedgerCommandCenter() {
           <TabsContent value="tasks"><TasksTab clients={selectableClients} projects={projects} tasks={tasks} calendarEvents={calendarEvents} onAddTask={addTask} onUpdateTask={updateTask} onDeleteTask={deleteTask} onAddEvent={addCalendarEvent} onUpdateEvent={updateCalendarEvent} onDeleteEvent={deleteCalendarEvent} currentEmployee={user} initialTaskId={initialTaskId} onClearInitialTask={() => setInitialTaskId(null)} allEmployees={allEmployees} /></TabsContent>
           <TabsContent value="timesheets"><TimesheetTab projects={filteredProjects} employeeId={user?.id || null} allEmployees={allEmployees} leaveBanks={leaveBanks} onAddEntry={addTimesheetEntry} onUpdateEntry={updateTimesheetEntry} onDeleteEntry={deleteTimesheetEntry} onUpdateLeaveBank={updateLeaveBank} onAddProject={() => setIsProjectDialogOpen(true)} isGlobalAdmin={isBoss} /></TabsContent>
           <TabsContent value="status"><ProjectStatusTab projects={filteredProjects} clients={selectableClients} onUpdateStatus={updateProjectStatus} /></TabsContent>
-          <TabsContent value="templates"><TemplatesTab requests={templateRequests} onAddRequest={addTemplateRequest} onUpdateRequest={updateTemplateRequest} onDeleteRequest={deleteTemplateRequest} /></TabsContent>
+          <TabsContent value="templates">
+            <TemplatesTab
+              requests={templateRequests}
+              onAddRequest={addTemplateRequest}
+              onUpdateRequest={updateTemplateRequest}
+              onDeleteRequest={deleteTemplateRequest}
+              firmTemplateDownloads={firmTemplateDownloads}
+              onAddFirmTemplateDownload={addFirmTemplateDownload}
+              onUpdateFirmTemplateDownload={updateFirmTemplateDownload}
+              onDeleteFirmTemplateDownload={deleteFirmTemplateDownload}
+            />
+          </TabsContent>
           <TabsContent value="toolset"><CalculatorTab templates={textTemplates} onAddTemplate={addTextTemplate} onUpdateTemplate={updateTextTemplate} onDeleteTemplate={deleteTextTemplate} /></TabsContent>
           <TabsContent value="archive"><ArchiveTab clients={selectableClients} projects={projects} billableEntries={archivedBillableEntries} printEntries={printEntries} taskEntries={archivedTasks} onUpdateBillable={updateBillableEntry} onDeleteBillable={deleteBillableEntry} onUpdatePrint={updatePrintEntry} onDeletePrint={deletePrintEntry} onUpdateTask={updateTask} onDeleteTask={deleteTask} onRestoreBillable={restoreArchivedBillableEntry} onRestorePrint={restoreArchivedPrintEntry} onRestoreTask={restoreArchivedTask} onRestoreProject={restoreArchivedProject} /></TabsContent>
           {canSeeFirmCommand ? (

@@ -2,8 +2,14 @@
 "use client"
 
 import { useState, useMemo } from 'react';
-import { TemplateChangeRequest, Employee, Priority, TemplateRequestStatus } from '@/lib/types';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import {
+  TemplateChangeRequest,
+  FirmTemplateDownload,
+  Employee,
+  Priority,
+  TemplateRequestStatus,
+} from '@/lib/types';
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,7 +17,19 @@ import { Textarea } from '@/components/ui/textarea';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertTitle } from '@/components/ui/alert';
-import { Pencil, Trash2, Plus, Calendar, Shield, ArrowUpDown, ChevronUp, ChevronDown } from 'lucide-react';
+import {
+  Pencil,
+  Trash2,
+  Plus,
+  Calendar,
+  Shield,
+  ArrowUpDown,
+  ChevronUp,
+  ChevronDown,
+  Download,
+  ExternalLink,
+} from 'lucide-react';
+import { formatDropboxUrl } from '@/lib/utils';
 
 type SortConfig = { key: keyof TemplateChangeRequest; direction: 'asc' | 'desc' } | null;
 
@@ -20,16 +38,53 @@ interface TemplatesTabProps {
   onAddRequest: (request: Omit<TemplateChangeRequest, 'id' | 'createdAt' | 'updatedAt'>) => void;
   onUpdateRequest: (id: string, request: Partial<TemplateChangeRequest>) => void;
   onDeleteRequest: (id: string) => void;
+  firmTemplateDownloads: FirmTemplateDownload[];
+  onAddFirmTemplateDownload: (
+    row: Omit<FirmTemplateDownload, 'id' | 'createdAt' | 'updatedAt'>,
+  ) => void;
+  onUpdateFirmTemplateDownload: (id: string, row: Partial<FirmTemplateDownload>) => void;
+  onDeleteFirmTemplateDownload: (id: string) => void;
   canEdit?: boolean;
+}
+
+function normalizeDownloadUrl(raw: string): string {
+  const t = raw.trim();
+  if (!t) return t;
+  return /^https?:\/\//i.test(t) ? t : `https://${t}`;
+}
+
+function looksLikeDropboxUrl(url: string): boolean {
+  return /dropbox\.com|dropboxusercontent\.com/i.test(url);
+}
+
+function downloadHref(stored: string): string {
+  const normalized = normalizeDownloadUrl(stored);
+  return formatDropboxUrl(normalized) || normalized;
 }
 
 const EMPLOYEES: Employee[] = ["Chris Fleming", "Jeff Dillon", "Jorrie Holly", "Kevin Walthall", "Sarah VandeBurgh"];
 const PRIORITIES: Priority[] = ["High", "Low", "Medium"];
 const STATUSES: TemplateRequestStatus[] = ["Completed", "Not Completed"];
 
-export function TemplatesTab({ requests, onAddRequest, onUpdateRequest, onDeleteRequest, canEdit = true }: TemplatesTabProps) {
+export function TemplatesTab({
+  requests,
+  onAddRequest,
+  onUpdateRequest,
+  onDeleteRequest,
+  firmTemplateDownloads,
+  onAddFirmTemplateDownload,
+  onUpdateFirmTemplateDownload,
+  onDeleteFirmTemplateDownload,
+  canEdit = true,
+}: TemplatesTabProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>(null);
+
+  const [dlEditingId, setDlEditingId] = useState<string | null>(null);
+  const [dlTitle, setDlTitle] = useState('');
+  const [dlUrl, setDlUrl] = useState('');
+  const [dlDescription, setDlDescription] = useState('');
+  const [dlSortOrder, setDlSortOrder] = useState('');
   
   // Form State
   const [title, setTitle] = useState('');
@@ -125,13 +180,197 @@ export function TemplatesTab({ requests, onAddRequest, onUpdateRequest, onDelete
     }
   };
 
+  const resetDlForm = () => {
+    setDlEditingId(null);
+    setDlTitle('');
+    setDlUrl('');
+    setDlDescription('');
+    setDlSortOrder('');
+  };
+
+  const handleDlSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canEdit || !dlTitle.trim()) return;
+    const url = normalizeDownloadUrl(dlUrl);
+    if (!url || !looksLikeDropboxUrl(url)) return;
+
+    const sortOrderParsed = dlSortOrder.trim() === '' ? 0 : Number(dlSortOrder);
+    const sortOrder = Number.isFinite(sortOrderParsed) ? sortOrderParsed : 0;
+
+    const payload = {
+      title: dlTitle.trim(),
+      dropboxUrl: url,
+      description: dlDescription.trim(),
+      sortOrder,
+    };
+
+    if (dlEditingId) {
+      onUpdateFirmTemplateDownload(dlEditingId, payload);
+    } else {
+      onAddFirmTemplateDownload(payload);
+    }
+    resetDlForm();
+  };
+
+  const handleDlEdit = (row: FirmTemplateDownload) => {
+    if (!canEdit) return;
+    setDlEditingId(row.id);
+    setDlTitle(row.title);
+    setDlUrl(row.dropboxUrl);
+    setDlDescription(row.description || '');
+    setDlSortOrder(row.sortOrder !== undefined && row.sortOrder !== 0 ? String(row.sortOrder) : '');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   return (
     <div className="space-y-6">
+      <Card className="border-border/50 shadow-lg overflow-hidden">
+        <CardHeader className="bg-muted/50">
+          <CardTitle className="font-headline text-2xl text-accent flex items-center gap-2">
+            <Download className="h-6 w-6" />
+            Template downloads (Dropbox)
+          </CardTitle>
+          <CardDescription className="text-muted-foreground">
+            Shared links to plan or office templates. Paste a Dropbox share URL; everyone on the team can open or
+            download from here.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-6 space-y-6">
+          {canEdit && (
+            <form onSubmit={handleDlSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+              <div className="space-y-2 lg:col-span-2">
+                <Label>Title</Label>
+                <Input
+                  value={dlTitle}
+                  onChange={(e) => setDlTitle(e.target.value)}
+                  placeholder="e.g. Residential title block CAD"
+                  required
+                />
+              </div>
+              <div className="space-y-2 lg:col-span-3">
+                <Label>Dropbox link</Label>
+                <Input
+                  value={dlUrl}
+                  onChange={(e) => setDlUrl(e.target.value)}
+                  placeholder="https://www.dropbox.com/s/… or https://www.dropbox.com/scl/fi/…"
+                  required
+                />
+              </div>
+              <div className="space-y-2 lg:col-span-1">
+                <Label>Sort order</Label>
+                <Input
+                  type="number"
+                  value={dlSortOrder}
+                  onChange={(e) => setDlSortOrder(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
+              <div className="space-y-2 lg:col-span-6">
+                <Label>Description (optional)</Label>
+                <Textarea
+                  value={dlDescription}
+                  onChange={(e) => setDlDescription(e.target.value)}
+                  placeholder="What this file is for, version, or who should use it."
+                  className="min-h-[72px] resize-y"
+                />
+              </div>
+              <div className="lg:col-span-6 flex flex-wrap justify-end gap-2">
+                {dlEditingId ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={resetDlForm} className="text-muted-foreground">
+                    Cancel
+                  </Button>
+                ) : null}
+                <Button
+                  type="submit"
+                  className="bg-primary hover:bg-primary/90 gap-2"
+                  disabled={!dlTitle.trim() || !normalizeDownloadUrl(dlUrl) || !looksLikeDropboxUrl(normalizeDownloadUrl(dlUrl))}
+                >
+                  {dlEditingId ? (
+                    <>
+                      <Pencil className="h-4 w-4" /> Update link
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4" /> Add download
+                    </>
+                  )}
+                </Button>
+              </div>
+            </form>
+          )}
+
+          <div className="rounded-md border border-border/50 overflow-hidden">
+            <Table>
+              <TableHeader className="bg-muted/30">
+                <TableRow>
+                  <TableHead>Title</TableHead>
+                  <TableHead className="hidden md:table-cell">Description</TableHead>
+                  <TableHead className="w-[140px] text-right">Download</TableHead>
+                  {canEdit ? <TableHead className="w-24" /> : null}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {firmTemplateDownloads.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={canEdit ? 4 : 3} className="text-center h-20 text-muted-foreground text-sm">
+                      {canEdit
+                        ? 'No shared templates yet. Add a Dropbox link above.'
+                        : 'No shared templates have been published yet.'}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  firmTemplateDownloads.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell>
+                        <div className="font-semibold text-sm">{row.title}</div>
+                        <div className="text-[10px] text-muted-foreground md:hidden mt-1 line-clamp-2">
+                          {row.description || '—'}
+                        </div>
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell text-sm text-muted-foreground max-w-md">
+                        {row.description || '—'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="outline" size="sm" className="gap-1.5" asChild>
+                          <a href={downloadHref(row.dropboxUrl)} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            Open
+                          </a>
+                        </Button>
+                      </TableCell>
+                      {canEdit ? (
+                        <TableCell>
+                          <div className="flex gap-1 justify-end">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleDlEdit(row)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-rose-500"
+                              onClick={() => onDeleteFirmTemplateDownload(row.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      ) : null}
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
       {!canEdit && (
         <Alert className="bg-muted/30 border-dashed border-border/50">
           <Shield className="h-4 w-4 text-muted-foreground" />
           <AlertTitle>Read-Only Access</AlertTitle>
-          <div className="text-xs text-muted-foreground">You can view template requests, but modification is restricted.</div>
+          <div className="text-xs text-muted-foreground">
+            You can view shared template links and change requests; adding or editing is restricted.
+          </div>
         </Alert>
       )}
 
