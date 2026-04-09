@@ -64,6 +64,8 @@ export type PlanReviewStreamEvent =
         templateId: string;
         categoryId: PlanReviewCategoryId;
         templateName: string;
+        /** compliance = code/plan review; checklist = Master Checklist–only pass (separate upload). */
+        reviewMode?: 'compliance' | 'checklist';
         pageCountSent: number;
         totalPdfPages: number;
         truncated: boolean;

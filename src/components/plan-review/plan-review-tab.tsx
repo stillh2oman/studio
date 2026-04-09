@@ -15,11 +15,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useLedgerData } from "@/hooks/use-ledger-data";
 import { cn } from "@/lib/utils";
-import { PLAN_REVIEW_PROMPTS } from "@/lib/plan-review/prompts";
+import {
+  PLAN_REVIEW_PROMPTS,
+  PLAN_REVIEW_CHECKLIST_TEMPLATE_IDS,
+} from "@/lib/plan-review/prompts";
 import type {
   PlanReviewCategoryId,
   PlanReviewProgressStep,
@@ -64,9 +66,9 @@ function formatPlanReviewHttpFailure(
     return [
       `Upstream gateway error (${status}).`,
       "Common causes: (1) the upload + form fields exceed a proxy body limit, (2) the server crashed before it could stream a response, or (3) an idle timeout closed the connection before the first streamed progress line (large PDFs can take a while to parse).",
-      `Try: turn off “Include Master Checklist in upload” to shrink the request, use a smaller PDF${
+      `Try: run Code compliance without the checklist tab first (smaller request), use a smaller PDF${
         typeof maxPagesHint === "number" ? ` or fewer than ${maxPagesHint} pages` : ""
-      }, split the plan set, then retry. If it still fails under ~${safeBelow} MB file size, the limit is likely outside the PDF bytes (multipart overhead + checklist JSON + prompt snapshot).`,
+      }, split the plan set, then retry. If it still fails under ~${safeBelow} MB file size, the limit is likely outside the PDF bytes (multipart overhead + prompt snapshot; checklist runs add more).`,
     ].join(" ");
   }
   if (status === 413) {
@@ -106,10 +108,10 @@ export function PlanReviewTab({
   const [templateId, setTemplateId] = useState<string>("");
   const [notes, setNotes] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  /** When set, plan review includes that project's Ledger checklist in the model prompt and PDF. */
+  /** Labels checklist bundle (Master Checklist vs project name) — used only for Master checklist analysis. */
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  /** Full checklist JSON in FormData can push multipart uploads over strict proxy limits; allow disabling. */
-  const [includeChecklistInUpload, setIncludeChecklistInUpload] = useState(true);
+  /** Code compliance vs Master checklist are separate analyses and separate uploads. */
+  const [runKind, setRunKind] = useState<"compliance" | "checklist">("compliance");
 
   const [busy, setBusy] = useState(false);
   const [lastProgressStep, setLastProgressStep] = useState<PlanReviewProgressStep | null>(null);
@@ -126,6 +128,7 @@ export function PlanReviewTab({
     usedTextFallback?: boolean;
     checklistProjectLabel?: string;
     checklistLineCount?: number;
+    reviewMode?: "compliance" | "checklist";
   } | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -135,6 +138,16 @@ export function PlanReviewTab({
   const promptsInCategory = useMemo(
     () => effectivePrompts.filter((p) => p.categoryId === category),
     [effectivePrompts, category],
+  );
+
+  const compliancePromptsOnly = useMemo(
+    () =>
+      promptsInCategory.filter(
+        (p) =>
+          p.id !== PLAN_REVIEW_CHECKLIST_TEMPLATE_IDS.residential &&
+          p.id !== PLAN_REVIEW_CHECKLIST_TEMPLATE_IDS.commercial,
+      ),
+    [promptsInCategory],
   );
 
   const sortedProjects = useMemo(
@@ -181,12 +194,16 @@ export function PlanReviewTab({
   }, []);
 
   useEffect(() => {
-    const first = promptsInCategory[0]?.id ?? "";
+    if (runKind === "checklist") {
+      setTemplateId(PLAN_REVIEW_CHECKLIST_TEMPLATE_IDS[category]);
+      return;
+    }
+    const first = compliancePromptsOnly[0]?.id ?? "";
     setTemplateId((prev) => {
-      if (prev && promptsInCategory.some((p) => p.id === prev)) return prev;
+      if (prev && compliancePromptsOnly.some((p) => p.id === prev)) return prev;
       return first;
     });
-  }, [promptsInCategory]);
+  }, [runKind, category, compliancePromptsOnly]);
 
   useEffect(() => {
     return () => {
@@ -256,7 +273,8 @@ export function PlanReviewTab({
         }),
       );
     }
-    if (includeChecklistInUpload) {
+    fd.append("reviewMode", runKind);
+    if (runKind === "checklist") {
       fd.append("checklistBundle", checklistBundleJson);
     }
 
@@ -385,9 +403,10 @@ export function PlanReviewTab({
           <ClipboardList className="h-5 w-5 text-primary" /> Plan Review
         </h3>
         <p className="text-sm text-muted-foreground max-w-3xl">
-          Upload an architectural PDF plan set, pick a review focus, and get an AI-assisted report. The server processes
-          the first {maxPages} pages (text extraction by default; image mode only if enabled on the host), sends them to
-          Perplexity, then builds a downloadable PDF. Large or complex PDFs can take several minutes.
+          Run <strong className="text-foreground/90">Code compliance review</strong> first (plan/code focus). Then run{" "}
+          <strong className="text-foreground/90">Master checklist analysis</strong> as a second pass with the same PDF —
+          it uploads the firm Master Checklist separately and produces a checklist-focused report. Each pass hits the
+          server once. The first {maxPages} pages are processed (text extraction by default).
         </p>
       </div>
 
@@ -469,58 +488,83 @@ export function PlanReviewTab({
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label>Checklist verification (Master Checklist)</Label>
-                <Select
-                  value={selectedProjectId ?? "none"}
-                  onValueChange={(v) => setSelectedProjectId(v === "none" ? null : v)}
-                  disabled={busy}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="No project — Master Checklist only" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[280px]">
-                    <SelectItem value="none">No project — Master Checklist only</SelectItem>
-                    {sortedProjects.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name || p.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  The model verifies each Master Checklist item against the plan set itself (not completion checkmarks) and
-                  includes evidence (sheet/page refs) for verified/missing/unclear/conflicting items.
-                </p>
-                <label className="flex items-start gap-2 text-xs text-muted-foreground cursor-pointer">
-                  <Checkbox
-                    checked={includeChecklistInUpload}
-                    onCheckedChange={(c) => setIncludeChecklistInUpload(c === true)}
-                    disabled={busy}
-                    className="mt-0.5"
-                  />
-                  <span>
-                    Include Master Checklist in upload (recommended). Turn off if you see a{" "}
-                    <span className="text-foreground/90">502 / gateway</span> error — it shrinks the multipart request.
-                  </span>
-                </label>
-              </div>
+              <Tabs
+                value={runKind}
+                onValueChange={(v) => {
+                  resetResult();
+                  setRunKind(v as "compliance" | "checklist");
+                }}
+                className="w-full"
+              >
+                <TabsList className="grid w-full max-w-xl grid-cols-2 h-auto p-1">
+                  <TabsTrigger value="compliance" className="text-xs sm:text-sm py-2">
+                    Code compliance review
+                  </TabsTrigger>
+                  <TabsTrigger value="checklist" className="text-xs sm:text-sm py-2">
+                    Master checklist analysis
+                  </TabsTrigger>
+                </TabsList>
 
-              <div className="space-y-2">
-                <Label>Review prompt</Label>
-                <Select value={templateId} onValueChange={setTemplateId} disabled={busy}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select a review type" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[280px]">
-                    {promptsInCategory.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                <TabsContent value="compliance" className="mt-4 space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Plan/code-focused review only — the Master Checklist is <strong className="text-foreground/80">not</strong>{" "}
+                    sent with this request. Switch to the other tab for checklist verification.
+                  </p>
+                  <div className="space-y-2">
+                    <Label>Review prompt</Label>
+                    <Select
+                      value={templateId}
+                      onValueChange={setTemplateId}
+                      disabled={busy || compliancePromptsOnly.length === 0}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select a review type" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[280px]">
+                        {compliancePromptsOnly.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="checklist" className="mt-4 space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Second pass: verifies each Master Checklist line against the plan sheets. Uses the same PDF upload but
+                    sends the checklist rubric in a <strong className="text-foreground/80">separate</strong> request.
+                  </p>
+                  <div className="space-y-2">
+                    <Label>Report label (project)</Label>
+                    <Select
+                      value={selectedProjectId ?? "none"}
+                      onValueChange={(v) => setSelectedProjectId(v === "none" ? null : v)}
+                      disabled={busy}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Master Checklist only" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[280px]">
+                        <SelectItem value="none">Master Checklist only</SelectItem>
+                        {sortedProjects.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name || p.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="rounded-lg border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                    Review type:{" "}
+                    <span className="font-semibold text-foreground">
+                      {effectivePrompts.find((p) => p.id === PLAN_REVIEW_CHECKLIST_TEMPLATE_IDS[category])?.name ??
+                        "Master checklist analysis"}
+                    </span>
+                  </div>
+                </TabsContent>
+              </Tabs>
 
               <div className="space-y-2">
                 <Label>Optional additional instructions</Label>
@@ -539,8 +583,10 @@ export function PlanReviewTab({
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing…
                     </>
+                  ) : runKind === "checklist" ? (
+                    "Submit checklist analysis"
                   ) : (
-                    "Submit for analysis"
+                    "Submit code compliance review"
                   )}
                 </Button>
                 {busy ? (

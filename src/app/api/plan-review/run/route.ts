@@ -5,7 +5,11 @@ import {
   PLAN_REVIEW_PERPLEXITY_TIMEOUT_MS,
   PLAN_REVIEW_RASTER_SCALE,
 } from '@/lib/plan-review/constants';
-import { applyPlanReviewPromptSnapshot } from '@/lib/plan-review/prompts';
+import {
+  applyPlanReviewPromptSnapshot,
+  PLAN_REVIEW_CHECKLIST_TEMPLATE_IDS,
+  type PlanReviewRunMode,
+} from '@/lib/plan-review/prompts';
 import { extractPdfTextByPage } from '@/lib/plan-review/pdf-text-extract';
 import {
   runPlanReviewWithPerplexity,
@@ -73,6 +77,35 @@ export async function POST(req: Request) {
     });
   }
 
+  const reviewModeRaw = String(form.get('reviewMode') || 'compliance').trim();
+  const reviewMode: PlanReviewRunMode =
+    reviewModeRaw === 'checklist' ? 'checklist' : 'compliance';
+
+  if (reviewMode === 'compliance') {
+    if (
+      template.id === PLAN_REVIEW_CHECKLIST_TEMPLATE_IDS.residential ||
+      template.id === PLAN_REVIEW_CHECKLIST_TEMPLATE_IDS.commercial
+    ) {
+      return new Response(
+        JSON.stringify({
+          error:
+            'Master checklist analysis is a separate step. Open the “Master checklist analysis” tab and run it there (do not use it under Code compliance).',
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+  } else {
+    const expected = PLAN_REVIEW_CHECKLIST_TEMPLATE_IDS[template.categoryId];
+    if (template.id !== expected) {
+      return new Response(
+        JSON.stringify({
+          error: `Checklist analysis must use the dedicated template for this category (expected ${expected}).`,
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+  }
+
   if (!(file instanceof Blob)) {
     return new Response(JSON.stringify({ error: 'Missing PDF file.' }), {
       status: 400,
@@ -99,15 +132,32 @@ export async function POST(req: Request) {
 
   const buf = Buffer.from(await file.arrayBuffer());
 
-  const checklistBundleRaw = form.get('checklistBundle');
-  const parsedChecklistBundle =
-    typeof checklistBundleRaw === 'string'
-      ? parsePlanReviewChecklistBundle(checklistBundleRaw)
-      : null;
-  const checklistCtx = parsedChecklistBundle
-    ? buildPlanReviewChecklistContext(parsedChecklistBundle.template)
-    : null;
-  const checklistModelAppendix = checklistCtx?.modelAppendix;
+  let parsedChecklistBundle: ReturnType<typeof parsePlanReviewChecklistBundle> = null;
+  let checklistCtx: ReturnType<typeof buildPlanReviewChecklistContext> | null = null;
+
+  if (reviewMode === 'checklist') {
+    const checklistBundleRaw = form.get('checklistBundle');
+    if (typeof checklistBundleRaw !== 'string' || !checklistBundleRaw.trim()) {
+      return new Response(
+        JSON.stringify({
+          error:
+            'Checklist analysis requires the Master Checklist bundle. Select a project label (or “Master Checklist only”) in the Checklist tab.',
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    parsedChecklistBundle = parsePlanReviewChecklistBundle(checklistBundleRaw);
+    if (!parsedChecklistBundle) {
+      return new Response(JSON.stringify({ error: 'Invalid checklist bundle.' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    checklistCtx = buildPlanReviewChecklistContext(parsedChecklistBundle.template);
+  }
+
+  const checklistModelAppendix =
+    reviewMode === 'checklist' ? checklistCtx?.modelAppendix : undefined;
 
   /**
    * IMPORTANT: ReadableStream `start` must not be `async` — many runtimes do not await it,
@@ -180,6 +230,7 @@ export async function POST(req: Request) {
                 checklistModelAppendix,
                 pageImages: raster.pages.map((p) => p.buffer),
                 signal: controllerAbort,
+                reviewMode,
               });
             } catch (rasterErr) {
               console.warn('[plan-review] rasterize or vision review failed; using text extraction fallback', rasterErr);
@@ -209,6 +260,7 @@ export async function POST(req: Request) {
                 checklistModelAppendix,
                 pageTexts: extracted.pageTexts,
                 signal: controllerAbort,
+                reviewMode,
               });
             }
           } else {
@@ -237,6 +289,7 @@ export async function POST(req: Request) {
               checklistModelAppendix,
               pageTexts: extracted.pageTexts,
               signal: controllerAbort,
+              reviewMode,
             });
           }
 
@@ -248,7 +301,10 @@ export async function POST(req: Request) {
             template.categoryId === 'residential' ? 'Residential plan review' : 'Commercial plan review';
 
           const reportPdf = await buildPlanReviewReportPdf({
-            title: 'Architectural Plan Review Report',
+            title:
+              reviewMode === 'checklist'
+                ? 'Master Checklist Analysis Report'
+                : 'Architectural Plan Review Report',
             generatedAtIso: completedAtIso,
             originalFileName: name,
             categoryLabel,
@@ -267,6 +323,7 @@ export async function POST(req: Request) {
               templateId: template.id,
               categoryId: template.categoryId,
               templateName: template.name,
+              reviewMode,
               pageCountSent,
               totalPdfPages,
               truncated,

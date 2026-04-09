@@ -19,8 +19,10 @@ export function planReviewGlobalInstructions(): string {
 
 export const PLAN_REVIEW_JSON_SCHEMA_NAME = 'plan_review_result';
 
+export type PlanReviewRunMode = 'compliance' | 'checklist';
+
 /** JSON Schema for Perplexity `response_format` (draft-07 compatible subset). */
-export function planReviewJsonSchema() {
+export function planReviewJsonSchema(mode: PlanReviewRunMode = 'compliance') {
   const finding = {
     type: 'object',
     additionalProperties: false,
@@ -60,10 +62,49 @@ export function planReviewJsonSchema() {
         recommendations: { type: 'array', items: finding },
         checklistVerification: { type: 'array', items: checklistRow },
       },
-      required: ['executiveSummary', 'critical', 'major', 'minor', 'recommendations'],
+      required:
+        mode === 'checklist'
+          ? [
+              'executiveSummary',
+              'critical',
+              'major',
+              'minor',
+              'recommendations',
+              'checklistVerification',
+            ]
+          : ['executiveSummary', 'critical', 'major', 'minor', 'recommendations'],
     },
   };
 }
+
+export type PlanReviewInputKind = 'images' | 'text';
+
+/** System preamble when the run is checklist-only (separate from code compliance). */
+export function planReviewChecklistSystemPreamble(inputKind: PlanReviewInputKind): string {
+  return [
+    'You are a senior architectural plan checker assisting a design firm.',
+    inputKind === 'images'
+      ? 'The user supplied raster images of plan sheets in page order. Treat them as the authoritative visual source.'
+      : 'The user supplied extracted plain text from PDF pages in order. Scanned/image-only pages may lack text — call status "unclear" when the sheets do not contain enough information.',
+    '',
+    'Your primary job:',
+    '- Follow the checklist rubric provided in the system message below EXACTLY.',
+    '- For every checklist line in that rubric, output one row in **checklistVerification** (match the item wording).',
+    '- Status: verified | missing | unclear | conflict.',
+    '- Evidence must describe what you found (or did not find) and cite sheet/page references when possible.',
+    '',
+    'Use **executiveSummary** for a short overview of checklist results (counts / themes).',
+    'Use critical / major / minor / recommendations only for cross-cutting plan issues found while checking the list (these arrays may be empty).',
+    '',
+    'Output: respond with **only** valid JSON matching the required schema. No markdown fences, no commentary outside JSON.',
+  ].join('\n');
+}
+
+/** Template ids for the dedicated “second pass” checklist analysis (one per category). */
+export const PLAN_REVIEW_CHECKLIST_TEMPLATE_IDS: Record<PlanReviewCategoryId, string> = {
+  residential: 'res-master-checklist',
+  commercial: 'com-master-checklist',
+};
 
 const residential: PlanReviewPromptTemplate[] = [
   {
@@ -135,6 +176,16 @@ const residential: PlanReviewPromptTemplate[] = [
     focusBody: [
       'Focus: annotations, keynotes, and callouts.',
       'Identify broken references, inconsistent terminology, leader targets that do not match geometry, and missing callouts for complex conditions.',
+    ].join('\n'),
+  },
+  {
+    id: 'res-master-checklist',
+    categoryId: 'residential',
+    group: 'Residential plan review',
+    name: 'Master checklist analysis (separate pass)',
+    focusBody: [
+      'This is a checklist-only review pass (run separately from code compliance).',
+      'Do not substitute generic code review for the rubric — every rubric line must appear in checklistVerification.',
     ].join('\n'),
   },
 ];
@@ -218,6 +269,16 @@ const commercial: PlanReviewPromptTemplate[] = [
     focusBody: [
       'Focus: keynotes, details, and references on commercial sheets.',
       'Flag inconsistent detail references, missing detail targets, and unclear scope boundaries.',
+    ].join('\n'),
+  },
+  {
+    id: 'com-master-checklist',
+    categoryId: 'commercial',
+    group: 'Commercial plan review',
+    name: 'Master checklist analysis (separate pass)',
+    focusBody: [
+      'This is a checklist-only review pass (run separately from code compliance).',
+      'Do not substitute generic code review for the rubric — every rubric line must appear in checklistVerification.',
     ].join('\n'),
   },
 ];

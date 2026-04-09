@@ -1,6 +1,16 @@
 import type { PlanReviewAnalysisJson } from '@/lib/plan-review/types';
-import { planReviewGlobalInstructions, planReviewJsonSchema } from '@/lib/plan-review/prompts';
+import {
+  planReviewGlobalInstructions,
+  planReviewJsonSchema,
+  planReviewChecklistSystemPreamble,
+  type PlanReviewRunMode,
+} from '@/lib/plan-review/prompts';
 import type { PlanReviewPromptTemplate } from '@/lib/plan-review/types';
+
+function planReviewSystemPreamble(mode: PlanReviewRunMode, inputKind: 'images' | 'text'): string {
+  if (mode === 'checklist') return planReviewChecklistSystemPreamble(inputKind);
+  return planReviewGlobalInstructions();
+}
 
 const PERPLEXITY_URL = 'https://api.perplexity.ai/v1/sonar';
 
@@ -96,11 +106,20 @@ export async function runPlanReviewWithPerplexity(params: {
   checklistModelAppendix?: string;
   pageImages: Buffer[];
   signal?: AbortSignal;
+  reviewMode?: PlanReviewRunMode;
 }): Promise<PlanReviewAnalysisJson> {
-  const { apiKey, template, extraInstructions, checklistModelAppendix, pageImages, signal } = params;
+  const {
+    apiKey,
+    template,
+    extraInstructions,
+    checklistModelAppendix,
+    pageImages,
+    signal,
+    reviewMode = 'compliance',
+  } = params;
 
   const system = [
-    planReviewGlobalInstructions(),
+    planReviewSystemPreamble(reviewMode, 'images'),
     '',
     `Review category: ${template.categoryId === 'residential' ? 'Residential' : 'Commercial'}.`,
     `Review type: ${template.name}.`,
@@ -119,8 +138,12 @@ export async function runPlanReviewWithPerplexity(params: {
   const introText = [
     `You will receive ${pageImages.length} PNG image(s) in order — these are pages from an architectural PDF plan set.`,
     'Perform the review and return JSON only (no markdown).',
-    'The JSON must include keys: executiveSummary (string), critical, major, minor, recommendations (arrays).',
-    'Each finding object: { title, detail, sheetRef (optional string), confidence: "confirmed" | "possible" }.',
+    reviewMode === 'checklist'
+      ? 'The JSON must include executiveSummary, critical, major, minor, recommendations, and checklistVerification. checklistVerification must include one row per rubric checklist line (item text must match the rubric). Each row: { item, status: verified|missing|unclear|conflict, evidence, sheetRef?, confidence: confirmed|possible }.'
+      : 'The JSON must include keys: executiveSummary (string), critical, major, minor, recommendations (arrays).',
+    reviewMode === 'compliance'
+      ? 'Each finding object: { title, detail, sheetRef (optional string), confidence: "confirmed" | "possible" }.'
+      : 'Finding objects (if any): { title, detail, sheetRef (optional string), confidence: "confirmed" | "possible" }.',
   ].join('\n');
 
   const userContent: Array<
@@ -168,7 +191,7 @@ export async function runPlanReviewWithPerplexity(params: {
     ...baseBody,
     response_format: {
       type: 'json_schema',
-      json_schema: planReviewJsonSchema(),
+      json_schema: planReviewJsonSchema(reviewMode),
     },
   });
 
@@ -216,11 +239,20 @@ export async function runPlanReviewWithPerplexityTextPages(params: {
   checklistModelAppendix?: string;
   pageTexts: string[];
   signal?: AbortSignal;
+  reviewMode?: PlanReviewRunMode;
 }): Promise<PlanReviewAnalysisJson> {
-  const { apiKey, template, extraInstructions, checklistModelAppendix, pageTexts, signal } = params;
+  const {
+    apiKey,
+    template,
+    extraInstructions,
+    checklistModelAppendix,
+    pageTexts,
+    signal,
+    reviewMode = 'compliance',
+  } = params;
 
   const system = [
-    planReviewGlobalInstructions(),
+    planReviewSystemPreamble(reviewMode, 'text'),
     '',
     `Review category: ${template.categoryId === 'residential' ? 'Residential' : 'Commercial'}.`,
     `Review type: ${template.name}.`,
@@ -287,7 +319,7 @@ export async function runPlanReviewWithPerplexityTextPages(params: {
     ...baseBody,
     response_format: {
       type: 'json_schema',
-      json_schema: planReviewJsonSchema(),
+      json_schema: planReviewJsonSchema(reviewMode),
     },
   });
 
