@@ -39,8 +39,9 @@ export interface PlanReviewAnalysisJson {
   minor: PlanReviewFinding[];
   recommendations: PlanReviewFinding[];
   /**
-   * Optional checklist verification results, when a master checklist rubric is provided.
-   * Each item should be evaluated against the plan set itself (not task completion flags).
+   * Master Checklist / rubric results. For dedicated checklist analysis runs, only problem rows are
+   * returned (**missing**, **unclear**, **conflict**); verified OK items are omitted. Optional for
+   * code-only reviews.
    */
   checklistVerification?: Array<{
     item: string;

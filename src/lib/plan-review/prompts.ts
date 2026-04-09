@@ -35,7 +35,7 @@ export function planReviewJsonSchema(mode: PlanReviewRunMode = 'compliance') {
     required: ['title', 'detail', 'confidence'],
   } as const;
 
-  const checklistRow = {
+  const checklistRowCompliance = {
     type: 'object',
     additionalProperties: false,
     properties: {
@@ -47,6 +47,22 @@ export function planReviewJsonSchema(mode: PlanReviewRunMode = 'compliance') {
     },
     required: ['item', 'status', 'evidence', 'confidence'],
   } as const;
+
+  /** Master checklist pass: schema matches "issues only" (no verified status). */
+  const checklistRowIssuesOnly = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      item: { type: 'string' },
+      status: { type: 'string', enum: ['missing', 'unclear', 'conflict'] },
+      evidence: { type: 'string' },
+      sheetRef: { type: 'string' },
+      confidence: { type: 'string', enum: ['confirmed', 'possible'] },
+    },
+    required: ['item', 'status', 'evidence', 'confidence'],
+  } as const;
+
+  const checklistRow = mode === 'checklist' ? checklistRowIssuesOnly : checklistRowCompliance;
 
   return {
     name: PLAN_REVIEW_JSON_SCHEMA_NAME,
@@ -88,13 +104,28 @@ export function planReviewChecklistSystemPreamble(inputKind: PlanReviewInputKind
       : 'The user supplied extracted plain text from PDF pages in order. Scanned/image-only pages may lack text — call status "unclear" when the sheets do not contain enough information.',
     '',
     'Your primary job:',
-    '- Follow the checklist rubric provided in the system message below EXACTLY.',
-    '- For every checklist line in that rubric, output one row in **checklistVerification** (match the item wording).',
-    '- Status: verified | missing | unclear | conflict.',
-    '- Evidence must describe what you found (or did not find) and cite sheet/page references when possible.',
+    '- Use the checklist rubric in the system message below as the scope of what to check.',
+    '- **Output only problems:** include **checklistVerification** rows **only** for items with status **missing**, **unclear**, or **conflict**.',
+    '- Do **not** include rows for items that are verified OK or correctly shown — omit them entirely from checklistVerification.',
+    '- Evidence must explain the issue and cite sheet/page references when possible.',
     '',
-    'Use **executiveSummary** for a short overview of checklist results (counts / themes).',
-    'Use critical / major / minor / recommendations only for cross-cutting plan issues found while checking the list (these arrays may be empty).',
+    'Plot plan rubric:',
+    '- If the plan set has **no** plot plan / site plan / civil sheet (nothing showing property lines, setbacks, building placement on the lot), **skip the entire Plot Plan section** of the rubric: do **not** output checklistVerification rows for those lines and do **not** mark them missing.',
+    '',
+    'Framing:',
+    '- **2x4** stud walls are acceptable for typical residential wall heights **up to 10\'** (including **9\' ceilings**). Do **not** list 2x4 walls for ~9\' ceiling height as an issue.',
+    '',
+    'Structural headers / beams:',
+    '- **Disregard** header notes, beam callouts, and similar **structural annotations** on architectural sheets — they will be specified by a structural engineer later. Do **not** flag them as checklist issues.',
+    '',
+    'Life safety / electrical (narrow scope):',
+    '- Do **not** discuss or require **smoke/CO alarm interconnection**; assume specifications/notes cover it.',
+    '- **Do** check that **weatherproof (WP) outdoor receptacles** are shown on the electrical plan where exterior outlets are expected.',
+    '',
+    'Do **not** report as findings: **6\'-6"** (or similar) **maximum door leaf height** reminders, IRC door-height callouts used as general notes, or equivalent.',
+    '',
+    'Use **executiveSummary** for a short **issues-only** overview (themes and counts of open items). If nothing is wrong, say so plainly.',
+    'Use critical / major / minor / recommendations only for cross-cutting plan issues (optional; may be empty).',
     '',
     'Output: respond with **only** valid JSON matching the required schema. No markdown fences, no commentary outside JSON.',
   ].join('\n');
@@ -184,8 +215,9 @@ const residential: PlanReviewPromptTemplate[] = [
     group: 'Residential plan review',
     name: 'Master checklist analysis (separate pass)',
     focusBody: [
-      'This is a checklist-only review pass (run separately from code compliance).',
-      'Do not substitute generic code review for the rubric — every rubric line must appear in checklistVerification.',
+      'Checklist-only pass: walk the Master Checklist rubric in the system message against the plan set.',
+      'Report **only** missing, unclear, or conflicting items in **checklistVerification** (omit verified/correct items).',
+      'Follow plot-plan skip, framing, header, smoke/CO, WP outlet, and door-height rules in the system preamble.',
     ].join('\n'),
   },
 ];
@@ -277,8 +309,9 @@ const commercial: PlanReviewPromptTemplate[] = [
     group: 'Commercial plan review',
     name: 'Master checklist analysis (separate pass)',
     focusBody: [
-      'This is a checklist-only review pass (run separately from code compliance).',
-      'Do not substitute generic code review for the rubric — every rubric line must appear in checklistVerification.',
+      'Checklist-only pass: walk the Master Checklist rubric in the system message against the plan set.',
+      'Report **only** missing, unclear, or conflicting items in **checklistVerification** (omit verified/correct items).',
+      'Follow plot-plan skip, framing, header, smoke/CO, WP outlet, and door-height rules in the system preamble.',
     ].join('\n'),
   },
 ];

@@ -311,7 +311,6 @@ export async function POST(req: Request) {
             promptName: template.name,
             analysis,
             checklistProjectLabel: parsedChecklistBundle?.projectLabel,
-            checklistLines: checklistCtx?.pdfChecklistLines,
           });
 
           send({

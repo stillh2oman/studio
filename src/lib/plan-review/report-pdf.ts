@@ -92,7 +92,7 @@ function checklistVerificationBlock(
   pageWidth: number,
   rows: NonNullable<PlanReviewAnalysisJson['checklistVerification']>,
 ): number {
-  let y = addSection(doc, 'Checklist verification results', startY);
+  let y = addSection(doc, 'Checklist findings (issues only)', startY);
 
   const counts = rows.reduce(
     (acc, r) => {
@@ -111,7 +111,9 @@ function checklistVerificationBlock(
 
   y = addWrapped(
     doc,
-    `Totals: ${counts.total} items — Verified: ${counts.verified}, Missing: ${counts.missing}, Unclear: ${counts.unclear}, Conflict: ${counts.conflict}`,
+    counts.total
+      ? `Open items: ${counts.total} — Missing: ${counts.missing}, Unclear: ${counts.unclear}, Conflict: ${counts.conflict}`
+      : 'No open checklist items reported.',
     y,
     pageWidth - 28,
     4.5,
@@ -120,6 +122,10 @@ function checklistVerificationBlock(
   if (y > 260) {
     doc.addPage();
     y = 20;
+  }
+
+  if (!rows.length) {
+    return y + 4;
   }
 
   for (const r of rows) {
@@ -155,8 +161,9 @@ export async function buildPlanReviewReportPdf(params: {
   categoryLabel: string;
   promptName: string;
   analysis: PlanReviewAnalysisJson;
-  /** When set, adds checklist rubric section before the disclaimer. */
+  /** When set, adds Master checklist results (no full rubric dump — issues only). */
   checklistProjectLabel?: string;
+  /** @deprecated Rubric lines are no longer printed on checklist reports; reserved for optional future use. */
   checklistLines?: string[];
 }): Promise<Buffer> {
   const { jsPDF } = await import('jspdf');
@@ -214,28 +221,34 @@ export async function buildPlanReviewReportPdf(params: {
       doc.addPage();
       y = 20;
     }
-    y = addSection(doc, 'Checklist verification rubric', y);
+    y = addSection(doc, 'Master checklist results', y);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.text(`Project: ${params.checklistProjectLabel}`, 14, y);
     y += 10;
-    y = checklistLinesBlock(
-      doc,
-      'Items to verify on the plan set',
-      params.checklistLines ?? [],
-      y,
-      pageWidth,
-    );
-    y += 6;
 
-    if (params.analysis.checklistVerification?.length) {
-      if (y > 220) {
-        doc.addPage();
-        y = 20;
-      }
-      y = checklistVerificationBlock(doc, y, pageWidth, params.analysis.checklistVerification);
+    if (params.checklistLines?.length) {
+      y = checklistLinesBlock(
+        doc,
+        'Checklist rubric reference (full list)',
+        params.checklistLines,
+        y,
+        pageWidth,
+      );
       y += 6;
     }
+
+    if (y > 220) {
+      doc.addPage();
+      y = 20;
+    }
+    y = checklistVerificationBlock(
+      doc,
+      y,
+      pageWidth,
+      params.analysis.checklistVerification ?? [],
+    );
+    y += 6;
   }
 
   if (y > 230) {

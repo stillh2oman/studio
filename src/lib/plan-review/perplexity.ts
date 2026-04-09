@@ -5,6 +5,19 @@ import {
   planReviewChecklistSystemPreamble,
   type PlanReviewRunMode,
 } from '@/lib/plan-review/prompts';
+
+/** Checklist runs omit verified rows; ensure a (possibly empty) array for downstream PDF/schema. */
+function applyChecklistIssuesOnlyPolicy(
+  analysis: PlanReviewAnalysisJson,
+  reviewMode: PlanReviewRunMode,
+): PlanReviewAnalysisJson {
+  if (reviewMode !== 'checklist') return analysis;
+  const rows = analysis.checklistVerification ?? [];
+  return {
+    ...analysis,
+    checklistVerification: rows.filter((r) => r.status !== 'verified'),
+  };
+}
 import type { PlanReviewPromptTemplate } from '@/lib/plan-review/types';
 
 function planReviewSystemPreamble(mode: PlanReviewRunMode, inputKind: 'images' | 'text'): string {
@@ -139,7 +152,7 @@ export async function runPlanReviewWithPerplexity(params: {
     `You will receive ${pageImages.length} PNG image(s) in order — these are pages from an architectural PDF plan set.`,
     'Perform the review and return JSON only (no markdown).',
     reviewMode === 'checklist'
-      ? 'The JSON must include executiveSummary, critical, major, minor, recommendations, and checklistVerification. checklistVerification must include one row per rubric checklist line (item text must match the rubric). Each row: { item, status: verified|missing|unclear|conflict, evidence, sheetRef?, confidence: confirmed|possible }.'
+      ? 'The JSON must include executiveSummary, critical, major, minor, recommendations, and checklistVerification (array). checklistVerification must contain ONLY problem items: each row uses status missing, unclear, or conflict — omit verified/correct items entirely (use an empty array if there are no issues). Each row: { item (exact rubric line text), status, evidence, sheetRef?, confidence: confirmed|possible }.'
       : 'The JSON must include keys: executiveSummary (string), critical, major, minor, recommendations (arrays).',
     reviewMode === 'compliance'
       ? 'Each finding object: { title, detail, sheetRef (optional string), confidence: "confirmed" | "possible" }.'
@@ -228,7 +241,7 @@ export async function runPlanReviewWithPerplexity(params: {
     throw new Error('Perplexity returned an empty message.');
   }
 
-  return parseAnalysisJson(messageText);
+  return applyChecklistIssuesOnlyPolicy(parseAnalysisJson(messageText), reviewMode);
 }
 
 /** Text-only review when PNG rasterization is unavailable (e.g. missing native canvas on the host). */
@@ -356,5 +369,5 @@ export async function runPlanReviewWithPerplexityTextPages(params: {
     throw new Error('Perplexity returned an empty message.');
   }
 
-  return parseAnalysisJson(messageText);
+  return applyChecklistIssuesOnlyPolicy(parseAnalysisJson(messageText), reviewMode);
 }
