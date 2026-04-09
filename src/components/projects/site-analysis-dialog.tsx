@@ -9,7 +9,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -34,7 +33,7 @@ function renderMarkdownishLine(line: string, key: string) {
     return (
       <div key={key} className="flex gap-2 text-sm text-foreground/90 leading-relaxed ml-1">
         <span className="text-primary shrink-0">•</span>
-        <span className="min-w-0 break-words">{linkifyText(rest)}</span>
+        <span className="min-w-0 break-words">{renderInlineContent(rest, `li-${key}`)}</span>
       </div>
     );
   }
@@ -43,39 +42,56 @@ function renderMarkdownishLine(line: string, key: string) {
   }
   return (
     <p key={key} className="text-sm text-foreground/90 leading-relaxed">
-      {linkifyText(line)}
+      {renderInlineContent(line, `p-${key}`)}
     </p>
   );
 }
 
-function linkifyText(text: string) {
-  const urlRe = /(https?:\/\/[^\s<>"')]+)/gi;
-  const parts: ReactNode[] = [];
+/** Markdown `[label](url)` first, then raw https URLs, then **bold**. */
+function renderInlineContent(text: string, keyPrefix: string): ReactNode {
+  const chunks: ReactNode[] = [];
+  const combined = /(\[([^\]]+)\]\((https?:\/\/[^)\s]+)\))|(https?:\/\/[^\s<>"')]+)/gi;
   let last = 0;
   let m: RegExpExecArray | null;
   let i = 0;
-  while ((m = urlRe.exec(text)) !== null) {
+  while ((m = combined.exec(text)) !== null) {
     if (m.index > last) {
-      parts.push(<span key={`t${i++}`}>{formatBold(text.slice(last, m.index))}</span>);
+      chunks.push(
+        <span key={`${keyPrefix}-b${i++}`}>{formatBold(text.slice(last, m.index))}</span>,
+      );
     }
-    const href = m[1];
-    parts.push(
-      <a
-        key={`a${i++}`}
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-primary underline underline-offset-2 break-all"
-      >
-        {href}
-      </a>,
-    );
+    if (m[2] && m[3]) {
+      chunks.push(
+        <a
+          key={`${keyPrefix}-m${i++}`}
+          href={m[3]}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-primary underline underline-offset-2 break-all font-medium"
+        >
+          {m[2]}
+        </a>,
+      );
+    } else if (m[4]) {
+      const href = m[4];
+      chunks.push(
+        <a
+          key={`${keyPrefix}-u${i++}`}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-primary underline underline-offset-2 break-all"
+        >
+          {href}
+        </a>,
+      );
+    }
     last = m.index + m[0].length;
   }
   if (last < text.length) {
-    parts.push(<span key={`t${i++}`}>{formatBold(text.slice(last))}</span>);
+    chunks.push(<span key={`${keyPrefix}-e${i++}`}>{formatBold(text.slice(last))}</span>);
   }
-  return parts.length ? parts : formatBold(text);
+  return chunks.length ? chunks : formatBold(text);
 }
 
 function formatBold(s: string): ReactNode {
@@ -175,7 +191,7 @@ export function SiteAnalysisDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[720px] max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden">
+      <DialogContent className="sm:max-w-[720px] max-h-[90vh] min-h-0 flex flex-col gap-0 p-0 overflow-hidden">
         <DialogHeader className="px-6 pt-6 pb-2 shrink-0">
           <DialogTitle className="font-headline text-xl pr-8">Site analysis</DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
@@ -193,7 +209,14 @@ export function SiteAnalysisDialog({
             maps, survey, and 811.
           </p>
         </div>
-        <ScrollArea className="flex-1 min-h-[200px] max-h-[min(65vh,560px)] px-6 py-4">
+        {/* Native overflow — Radix ScrollArea uses overflow:hidden and often hides scrollbars / clips flex children. */}
+        <div
+          className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-6 py-4 border-y border-border/30 [scrollbar-gutter:stable]"
+          style={{ maxHeight: "min(58vh, 520px)" }}
+          tabIndex={0}
+          role="region"
+          aria-label="Site analysis memo"
+        >
           {loading ? (
             <div className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground">
               <Loader2 className="h-10 w-10 animate-spin text-primary" />
@@ -202,9 +225,16 @@ export function SiteAnalysisDialog({
           ) : error ? (
             <p className="text-sm text-rose-400 py-6">{error}</p>
           ) : (
-            <div className="space-y-1 pr-3">{lines.map((line, idx) => renderMarkdownishLine(line, `${idx}`))}</div>
+            <div className="space-y-1 pb-2">
+              {lines.map((line, idx) => renderMarkdownishLine(line, `${idx}`))}
+            </div>
           )}
-        </ScrollArea>
+        </div>
+        {!loading && !error && markdown ? (
+          <p className="px-6 pb-1 text-[10px] text-muted-foreground shrink-0">
+            Scroll inside the memo area for FEMA floodplain, GIS links, and the consolidated link list.
+          </p>
+        ) : null}
         <div className="px-6 py-4 border-t border-border/50 shrink-0 flex justify-end">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Close

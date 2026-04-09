@@ -4,7 +4,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 120;
 export const dynamic = 'force-dynamic';
 
-const PERPLEXITY_TIMEOUT_MS = 90_000;
+const PERPLEXITY_TIMEOUT_MS = 110_000;
 
 /**
  * Research memo for a project site address (assessor, GIS, zoning, codes, utilities, flood, HOA).
@@ -66,6 +66,8 @@ export async function POST(req: Request) {
       '12. **Disclaimer** — Short note that this is research assistance only; codes and maps change; verify with the AHJ, surveyor, elevation certificate, and title before design or construction.',
       '',
       'Use real `https://` links when you have them from search. If a link cannot be verified, omit it and name the agency instead.',
+      '',
+      '**Output discipline (critical):** Do **not** stop after the assessor section. You must complete **every** section through **12**, especially **7 (FEMA)** and **11 (GIS, parcel & map links)** with real `https://` URLs. If you are tight on length, shorten sections **1–2** rather than omitting floodplain, GIS, recorder/clerk, or the consolidated link list.',
     ]
       .filter(Boolean)
       .join('\n');
@@ -84,7 +86,7 @@ export async function POST(req: Request) {
         body: JSON.stringify({
           model: 'sonar-pro',
           temperature: 0.2,
-          max_tokens: 3500,
+          max_tokens: 8192,
           messages: [
             { role: 'system', content: system },
             { role: 'user', content: user },
@@ -122,7 +124,12 @@ export async function POST(req: Request) {
       );
     }
 
-    let data: { choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }> };
+    let data: {
+      choices?: Array<{
+        finish_reason?: string;
+        message?: { content?: string | Array<{ text?: string }> };
+      }>;
+    };
     try {
       data = JSON.parse(raw) as typeof data;
     } catch {
@@ -141,7 +148,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Empty analysis from model.' }, { status: 502 });
     }
 
-    return NextResponse.json({ markdown: textOut.trim() });
+    const finishReason = data?.choices?.[0]?.finish_reason;
+    let markdown = textOut.trim();
+    if (finishReason === 'length') {
+      markdown += [
+        '',
+        '---',
+        '',
+        '*This reply hit the model output limit. Run **Site analysis** again; the UI now scrolls the full memo. If sections are still missing, ask for a shorter jurisdiction/assessor summary so FEMA and links fit.*',
+      ].join('\n');
+    }
+
+    return NextResponse.json({ markdown });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     console.error('[site-analysis]', e);
