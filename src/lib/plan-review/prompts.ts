@@ -113,7 +113,7 @@ export function planReviewChecklistSystemPreamble(inputKind: PlanReviewInputKind
     '- If the plan set has **no** plot plan / site plan / civil sheet (nothing showing property lines, setbacks, building placement on the lot), **skip the entire Plot Plan section** of the rubric: do **not** output checklistVerification rows for those lines and do **not** mark them missing.',
     '',
     'Framing:',
-    '- **2x4** stud walls are acceptable for typical residential wall heights **up to 10\'** (including **9\' ceilings**). Do **not** list 2x4 walls for ~9\' ceiling height as an issue.',
+    '- **2x4** stud walls are acceptable for wall heights **up to 10\'** (including typical **9\' ceilings**). Do **not** list 2x4 walls for ~9\' ceiling height as an issue.',
     '',
     'Structural headers / beams:',
     '- **Disregard** header notes, beam callouts, and similar **structural annotations** on architectural sheets — they will be specified by a structural engineer later. Do **not** flag them as checklist issues.',
