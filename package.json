@@ -26,9 +26,11 @@
     "migrate:shared-db": "npx tsx scripts/migrate-shared-db.ts",
     "validate:shared-db": "npx tsx scripts/validate-shared-db.ts",
     "test:shared-mappers": "node --import tsx --test src/lib/shared-data/mappers.node-test.ts src/lib/shared-data/merge-utils.node-test.ts",
-    "test:handoff": "node --test src/lib/handoff/planport-ledger/v1.node-test.ts"
+    "test:handoff": "node --import tsx --test src/lib/handoff/planport-ledger/v1.node-test.ts src/lib/handoff/planport-ledger/v2.node-test.ts",
+    "migrate:external-ids": "npx tsx scripts/ledger-backfill-external-ids.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@genkit-ai/google-genai": "^1.31.0",
     "@google/genai": "^1.46.0",
     "@hookform/resolvers": "^4.1.3",

@@ -11,6 +11,7 @@ function pickExtensionLedgerClient(c: Client): Record<string, unknown> {
   const ext: Record<string, unknown> = {};
   const known = new Set([
     'id',
+    'externalId',
     'name',
     'firstName',
     'lastName',
@@ -31,6 +32,7 @@ function pickExtensionLedgerClient(c: Client): Record<string, unknown> {
     'assignedContractorId',
     'discountEligibility',
     'hiddenFromDatabase',
+    'planportExtension',
   ]);
   for (const [k, v] of Object.entries(c)) {
     if (!known.has(k)) ext[k] = v;
@@ -52,6 +54,7 @@ function pickExtensionLedgerContractor(c: Contractor): Record<string, unknown> {
   const ext: Record<string, unknown> = {};
   const known = new Set([
     'id',
+    'externalId',
     'companyName',
     'logoUrl',
     'billingEmail',
@@ -71,6 +74,7 @@ function pickExtensionLedgerProject(p: Project): Record<string, unknown> {
   const ext: Record<string, unknown> = {};
   const known = new Set([
     'id',
+    'externalId',
     'name',
     'clientId',
     'hiddenFromCards',
@@ -91,6 +95,7 @@ function pickExtensionLedgerProject(p: Project): Record<string, unknown> {
     'createdAt',
     'designer',
     'renderingUrl',
+    'planportExtension',
   ]);
   for (const [k, v] of Object.entries(p)) {
     if (!known.has(k)) ext[k] = v;
@@ -116,6 +121,7 @@ export function mapInternalClientToCanonical(firmId: string, c: Client, actor?: 
   return {
     schemaVersion: SHARED_SCHEMA_VERSION,
     firmId,
+    externalId: c.externalId || undefined,
     accountKind: 'residential',
     displayName: c.name || `${c.firstName || ''} ${c.lastName || ''}`.trim() || 'Unnamed',
     legalName: c.name,
@@ -148,6 +154,7 @@ export function mapInternalContractorToCanonical(firmId: string, c: Contractor, 
   return {
     schemaVersion: SHARED_SCHEMA_VERSION,
     firmId,
+    externalId: c.externalId || undefined,
     accountKind: 'contractor',
     displayName: c.companyName || 'Unnamed Contractor',
     legalName: c.companyName,
@@ -187,6 +194,7 @@ export function mapInternalProjectToCanonical(
   return {
     schemaVersion: SHARED_SCHEMA_VERSION,
     firmId,
+    externalId: p.externalId || undefined,
     projectName: p.name || 'Untitled',
     status: p.status,
     address: p.address || undefined,
@@ -217,6 +225,7 @@ export function mapCanonicalToInternalClientView(c: SharedClientDoc, legacyId: s
   const ext = c.extensionLedger || {};
   return {
     id: legacyId,
+    externalId: typeof c.externalId === 'string' ? c.externalId : undefined,
     name: c.displayName,
     firstName: typeof ext.firstName === 'string' ? ext.firstName : undefined,
     lastName: typeof ext.lastName === 'string' ? ext.lastName : undefined,
@@ -243,6 +252,7 @@ export function mapCanonicalToInternalContractorView(c: SharedClientDoc, legacyI
   const ext = c.extensionLedger || {};
   return {
     id: legacyId,
+    externalId: typeof c.externalId === 'string' ? c.externalId : undefined,
     companyName: c.displayName,
     logoUrl: c.logoUrl,
     billingEmail: c.billingEmail || '',
@@ -260,6 +270,7 @@ export function mapCanonicalToInternalProjectView(p: SharedProjectDoc, legacyId:
   const ledgerContractorId = typeof ext.ledgerContractorId === 'string' ? ext.ledgerContractorId : '';
   return {
     id: legacyId,
+    externalId: typeof p.externalId === 'string' ? p.externalId : undefined,
     name: p.projectName,
     clientId: ledgerClientId,
     hiddenFromCards: !!ext.hiddenFromCards,

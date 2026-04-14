@@ -6,3 +6,4 @@ export * from './portal-mappers';
 export * from './canonical-repository';
 export * from './merge-utils';
 export * from './ledger-canonical-derive';
+export * from './cross-app-sync';

@@ -301,6 +301,11 @@ export interface Attachment {
 
 export interface Client {
   id: string;
+  /**
+   * Stable cross-app identifier for PlanPort ↔ Ledger sync (not the Firestore document id).
+   * Generated on PlanPort create / backfilled by migration scripts.
+   */
+  externalId?: string;
   name: string;
   firstName?: string;
   lastName?: string;
@@ -321,6 +326,8 @@ export interface Client {
   assignedContractorId?: string;
   discountEligibility?: ClientDiscountEligibility | '';
   hiddenFromDatabase?: boolean;
+  /** PlanPort-only payload preserved on Ledger after sync (not shown in all UIs). */
+  planportExtension?: Record<string, unknown>;
 }
 
 export interface ContractorContact {
@@ -332,6 +339,7 @@ export interface ContractorContact {
 
 export interface Contractor {
   id: string;
+  externalId?: string;
   companyName: string;
   logoUrl?: string;
   billingEmail?: string;
@@ -343,6 +351,10 @@ export interface Contractor {
 
 export interface Project {
   id: string;
+  /**
+   * Stable cross-app identifier for PlanPort ↔ Ledger sync (not the Firestore document id).
+   */
+  externalId?: string;
   name: string;
   clientId: string;
   hiddenFromCards?: boolean;
@@ -363,6 +375,8 @@ export interface Project {
   createdAt?: string;
   designer?: Designer;
   renderingUrl?: string;
+  /** PlanPort-only payload preserved on Ledger after sync. */
+  planportExtension?: Record<string, unknown>;
 }
 
 export interface ProjectNote {
@@ -513,6 +527,9 @@ export interface TemplateChangeRequest {
   createdAt: string;
 }
 
+/** Which curated folder this Dropbox link appears under on the Templates tab. */
+export type FirmTemplateDownloadFolder = 'chief_template' | 'designers_ink_graphics';
+
 /** Firm-curated template files (Dropbox share links) for team download from the Templates tab. */
 export interface FirmTemplateDownload {
   id: string;
@@ -520,6 +537,8 @@ export interface FirmTemplateDownload {
   dropboxUrl: string;
   description?: string;
   sortOrder?: number;
+  /** Defaults to chief_template when missing (legacy rows). */
+  folder?: FirmTemplateDownloadFolder;
   updatedAt: string;
   createdAt: string;
 }

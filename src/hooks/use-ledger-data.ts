@@ -1,9 +1,8 @@
 
 "use client"
 
-import { useMemo, useCallback, useEffect } from 'react';
+import { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import { getApp } from 'firebase/app';
-import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getStorage, ref, deleteObject } from 'firebase/storage';
 import {
   collection,
@@ -46,6 +45,7 @@ import {
   archiveTimesheetPdfFromBrowser,
   patchTimesheetArchivePdfFromBrowser,
 } from '@/lib/timesheet-archive-client';
+import type { TimesheetWeekBreakdownRow } from '@/lib/timesheet-week-breakdown';
 import {
   getDataAccessMode,
   CANONICAL_CLIENTS_COLLECTION,
@@ -61,18 +61,13 @@ import {
 } from '@/lib/shared-data/internal-mappers';
 import { sharedClientDocIdForLedger, sharedProjectDocIdForLedger } from '@/lib/shared-data/ids';
 import { upsertCanonicalClient, upsertCanonicalProject } from '@/lib/shared-data/canonical-repository';
+import {
+  ensureLedgerFirebaseAuth,
+  FIREBASE_AUTH_FALLBACK_HINT,
+} from '@/lib/firebase-auth-session';
+import { getFirebaseWebConfigIssue } from '@/firebase/config';
 
 const EMPTY_CONFIG: IntegrationConfig = {};
-
-/** Browser Storage rules need request.auth — match TimesheetTab pre-submit + provider anonymous flow. */
-async function ensureFirebaseAuthForClientUpload() {
-  try {
-    const auth = getAuth(getApp());
-    if (!auth.currentUser) await signInAnonymously(auth);
-  } catch {
-    /* Anonymous may be disabled in Firebase Console */
-  }
-}
 
 // STABLE BUILD VERSION
 export const BUILD_VERSION = "1.7.7-REPORTS-TIMESHEET-PDF";
@@ -89,6 +84,7 @@ function ledgerMapClient(c: any): Client {
   return {
     ...c,
     id: c.id,
+    externalId: c.externalId,
     name,
     firstName,
     lastName,
@@ -114,6 +110,7 @@ function ledgerMapProject(p: any): Project {
   return {
     ...p,
     id: p.id,
+    externalId: p.externalId,
     name: p.name ?? 'Untitled Project',
     clientId: p.clientId ?? '',
     hiddenFromCards: !!p.hiddenFromCards,
@@ -167,6 +164,16 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
   }, [activeUserId, myBossId, isBoss]);
 
   const isLoaded = !!dataRootId;
+
+  /** Rows saved via Admin API until Firestore listener includes the same doc id (fixes empty list lag / project drift). */
+  const [pendingTimesheetArchiveRows, setPendingTimesheetArchiveRows] = useState<TimesheetPdfArchive[]>([]);
+  /** When onSnapshot errors, raw becomes [] — keep last good list so manual uploads do not vanish until the listener recovers. */
+  const lastGoodTimesheetArchiveRef = useRef<TimesheetPdfArchive[] | null>(null);
+
+  useEffect(() => {
+    setPendingTimesheetArchiveRows([]);
+    lastGoodTimesheetArchiveRef.current = null;
+  }, [dataRootId]);
 
   const dataAccessMode = getDataAccessMode();
   const useCanonicalLists =
@@ -229,12 +236,11 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
   const messagesRef = useMemoFirebase(() => dataRootId ? collection(firestore, 'employees', dataRootId, 'messages') : null, [firestore, dataRootId]);
   const referenceLibraryRef = useMemoFirebase(() => dataRootId ? collection(firestore, 'employees', dataRootId, 'reference_library') : null, [firestore, dataRootId]);
   const submissionsRef = useMemoFirebase(() => dataRootId ? collection(firestore, 'employees', dataRootId, 'pay_period_submissions') : null, [firestore, dataRootId]);
+  /** No server-side orderBy — avoids rare snapshot failures; we sort client-side below. */
   const timesheetArchiveQueryRef = useMemoFirebase(
     () =>
-      dataRootId
-        ? query(collection(firestore, 'employees', dataRootId, 'timesheet_report_archive'), orderBy('createdAt', 'desc'))
-        : null,
-    [firestore, dataRootId]
+      dataRootId ? collection(firestore, 'employees', dataRootId, 'timesheet_report_archive') : null,
+    [firestore, dataRootId],
   );
   const memoryBankRef = useMemoFirebase(() => dataRootId ? collection(firestore, 'employees', dataRootId, 'memory_bank_files') : null, [firestore, dataRootId]);
   
@@ -276,7 +282,44 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
   const { data: messagesRaw } = useCollection<Message>(messagesRef);
   const { data: libraryRaw } = useCollection<ReferenceDocument>(referenceLibraryRef);
   const { data: submissionsRaw } = useCollection<PayPeriodSubmission>(submissionsRef);
-  const { data: timesheetArchiveRaw } = useCollection<TimesheetPdfArchive>(timesheetArchiveQueryRef);
+  const {
+    data: timesheetArchiveRaw,
+    error: timesheetArchiveError,
+    isLoading: timesheetArchiveLoading,
+  } = useCollection<TimesheetPdfArchive>(timesheetArchiveQueryRef);
+
+  useEffect(() => {
+    if (timesheetArchiveError) return;
+    const raw = timesheetArchiveRaw;
+    if (raw && raw.length > 0) {
+      lastGoodTimesheetArchiveRef.current = [...raw];
+    } else if (raw && raw.length === 0 && !timesheetArchiveLoading) {
+      lastGoodTimesheetArchiveRef.current = [];
+    }
+  }, [timesheetArchiveRaw, timesheetArchiveError, timesheetArchiveLoading]);
+
+  useEffect(() => {
+    if (timesheetArchiveError != null) return;
+    const ids = new Set((timesheetArchiveRaw || []).map((r) => r.id));
+    setPendingTimesheetArchiveRows((prev) => prev.filter((r) => !ids.has(r.id)));
+  }, [timesheetArchiveRaw, timesheetArchiveError]);
+
+  const timesheetPdfArchiveSorted = useMemo(() => {
+    const raw = timesheetArchiveRaw || [];
+    const fromServer =
+      timesheetArchiveError != null && (lastGoodTimesheetArchiveRef.current?.length ?? 0) > 0
+        ? lastGoodTimesheetArchiveRef.current!
+        : raw;
+    const idSet = new Set(fromServer.map((r) => r.id));
+    const pending = pendingTimesheetArchiveRows.filter((p) => !idSet.has(p.id));
+    const rows = [...fromServer, ...pending];
+    rows.sort((a, b) => {
+      const sa = String(a.createdAt || a.submittedAt || '');
+      const sb = String(b.createdAt || b.submittedAt || '');
+      return sb.localeCompare(sa);
+    });
+    return rows;
+  }, [timesheetArchiveRaw, timesheetArchiveError, pendingTimesheetArchiveRows]);
   const { data: memoryBankFilesRaw } = useCollection<MemoryBankFile>(memoryBankRef);
   const { data: subordinatesRaw } = useCollection<Employee>(staffRef);
   const { data: checklistTemplateData } = useDoc<any>(checklistTemplateRef);
@@ -734,7 +777,7 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
       messages: messagesRaw || [],
       reference_library: libraryRaw || [],
       pay_period_submissions: submissionsRaw || [],
-      timesheet_report_archive: timesheetArchiveRaw || [],
+      timesheet_report_archive: timesheetPdfArchiveSorted,
       config: {
         checklist_template: checklistTemplateData || null,
         integrations: integrationConfigData || null,
@@ -753,7 +796,7 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
     messagesRaw,
     libraryRaw,
     submissionsRaw,
-    timesheetArchiveRaw,
+    timesheetPdfArchiveSorted,
     checklistTemplateData, integrationConfigData, planReviewPromptsDoc,
   ]);
 
@@ -808,6 +851,7 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
           pto: number;
           overtime: number;
         };
+        hoursByWeek?: TimesheetWeekBreakdownRow[];
       },
     ) => {
       if (!dataRootId) {
@@ -827,6 +871,7 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
         form.append('periodEnd', meta.periodEnd);
         form.append('submittedAt', meta.submittedAt);
         form.append('stats', JSON.stringify(meta.stats || {}));
+        form.append('hoursByWeek', JSON.stringify(meta.hoursByWeek || []));
         form.append('file', pdfBlob, 'timesheet.pdf');
 
         const res = await fetch('/api/timesheet/submit-archive', {
@@ -842,10 +887,21 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
           uploadError?: string;
           emailSent?: boolean;
           emailError?: string;
+          emailPending?: boolean;
         };
 
         if (!res.ok || !data.success) {
-          await ensureFirebaseAuthForClientUpload();
+          const primary = data.error || res.statusText || 'Timesheet submit failed';
+          const authRes = await ensureLedgerFirebaseAuth();
+          if (!authRes.ok) {
+            return {
+              success: false as const,
+              downloadUrl: undefined,
+              uploadError: [primary, `Firebase Auth: ${authRes.error}`, FIREBASE_AUTH_FALLBACK_HINT]
+                .filter(Boolean)
+                .join(' — '),
+            };
+          }
           const fallback = await archiveTimesheetPdfFromBrowser(firestore, dataRootId, pdfBlob, meta);
           if (fallback.success) {
             return {
@@ -854,7 +910,6 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
               uploadError: fallback.uploadError,
             };
           }
-          const primary = data.error || res.statusText || 'Timesheet submit failed';
           return {
             success: false as const,
             downloadUrl: fallback.downloadUrl,
@@ -863,43 +918,88 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
         }
 
         let uploadError: string | undefined = data.uploadError;
-        if (!data.emailSent && data.emailError) {
+        if (!data.emailPending && !data.emailSent && data.emailError) {
           uploadError = [uploadError, `Email failed: ${data.emailError}`].filter(Boolean).join(' | ');
         }
 
         let finalDownloadUrl = data.downloadUrl;
         if (!finalDownloadUrl && data.docId && data.storagePath) {
-          await ensureFirebaseAuthForClientUpload();
-          let patch = await patchTimesheetArchivePdfFromBrowser(
-            firestore,
-            dataRootId,
-            pdfBlob,
-            data.docId,
-            data.storagePath,
-          );
-          if (!patch.downloadUrl) {
-            await ensureFirebaseAuthForClientUpload();
-            patch = await patchTimesheetArchivePdfFromBrowser(
+          const patchAuth = await ensureLedgerFirebaseAuth();
+          if (!patchAuth.ok) {
+            uploadError = [
+              uploadError,
+              `Firebase Auth: ${patchAuth.error}`,
+              FIREBASE_AUTH_FALLBACK_HINT,
+            ]
+              .filter(Boolean)
+              .join(' | ');
+          } else {
+            let patch = await patchTimesheetArchivePdfFromBrowser(
               firestore,
               dataRootId,
               pdfBlob,
               data.docId,
               data.storagePath,
             );
-          }
-          if (patch.downloadUrl) {
-            finalDownloadUrl = patch.downloadUrl;
-          } else if (patch.error) {
-            uploadError = [uploadError, patch.error].filter(Boolean).join(' | ');
+            if (!patch.downloadUrl) {
+              const retryAuth = await ensureLedgerFirebaseAuth();
+              if (retryAuth.ok) {
+                patch = await patchTimesheetArchivePdfFromBrowser(
+                  firestore,
+                  dataRootId,
+                  pdfBlob,
+                  data.docId,
+                  data.storagePath,
+                );
+              } else if (retryAuth.error) {
+                uploadError = [uploadError, `Firebase Auth: ${retryAuth.error}`].filter(Boolean).join(' | ');
+              }
+            }
+            if (patch.downloadUrl) {
+              finalDownloadUrl = patch.downloadUrl;
+            } else if (patch.error) {
+              uploadError = [uploadError, patch.error].filter(Boolean).join(' | ');
+            }
           }
         }
 
-        return { success: true as const, downloadUrl: finalDownloadUrl, uploadError };
+        return {
+          success: true as const,
+          downloadUrl: finalDownloadUrl,
+          uploadError,
+          emailPending: !!data.emailPending,
+        };
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'Network error';
         console.error('[archiveTimesheetPdfReport]', e);
+        const looksLikeNetworkFailure =
+          /^failed to fetch$/i.test(msg.trim()) ||
+          /networkerror|load failed|fetch failed|aborted|timeout/i.test(msg);
+        if (looksLikeNetworkFailure) {
+          const cfg = getFirebaseWebConfigIssue();
+          return {
+            success: false as const,
+            downloadUrl: undefined,
+            uploadError: [
+              `${msg}: the app did not get a response from /api/timesheet/submit-archive (often a hosting proxy timeout while sending email).`,
+              'Redeploy with the latest server code (payroll email now runs after the response) or check your network.',
+              cfg ? `Separate issue — web Firebase config: ${cfg}` : FIREBASE_AUTH_FALLBACK_HINT,
+            ]
+              .filter(Boolean)
+              .join(' '),
+          };
+        }
         try {
-          await ensureFirebaseAuthForClientUpload();
+          const authRes = await ensureLedgerFirebaseAuth();
+          if (!authRes.ok) {
+            return {
+              success: false as const,
+              downloadUrl: undefined,
+              uploadError: [msg, `Firebase Auth: ${authRes.error}`, FIREBASE_AUTH_FALLBACK_HINT]
+                .filter(Boolean)
+                .join(' — '),
+            };
+          }
           const fallback = await archiveTimesheetPdfFromBrowser(firestore, dataRootId, pdfBlob, meta);
           if (fallback.success) {
             return {
@@ -928,6 +1028,7 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
   const deleteTimesheetPdfArchive = useCallback(
     (archiveDocId: string, storagePath?: string) => {
       if (!dataRootId || !archiveDocId) return;
+      setPendingTimesheetArchiveRows((prev) => prev.filter((r) => r.id !== archiveDocId));
       if (storagePath && typeof window !== 'undefined') {
         try {
           const app = getApp();
@@ -944,6 +1045,59 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
       );
     },
     [dataRootId, firestore],
+  );
+
+  const uploadManualTimesheetPdfArchive = useCallback(
+    async (params: {
+      employeeId: string;
+      employeeName: string;
+      periodStart: string;
+      periodEnd: string;
+      file: File | Blob;
+    }): Promise<{ success: boolean; error?: string }> => {
+      if (!dataRootId) {
+        return { success: false, error: 'No firm workspace.' };
+      }
+      try {
+        const form = new FormData();
+        form.append('firmId', dataRootId);
+        form.append('employeeId', params.employeeId);
+        form.append('employeeName', params.employeeName);
+        form.append('periodStart', params.periodStart);
+        form.append('periodEnd', params.periodEnd);
+        const f =
+          params.file instanceof File
+            ? params.file
+            : new File([params.file], 'timesheet.pdf', { type: 'application/pdf' });
+        form.append('file', f);
+
+        const res = await fetch('/api/timesheet/manual-archive', { method: 'POST', body: form });
+        const data = (await res.json().catch(() => ({}))) as {
+          success?: boolean;
+          error?: string;
+          uploadError?: string;
+          archive?: TimesheetPdfArchive;
+        };
+        if (!res.ok || !data.success) {
+          return {
+            success: false,
+            error: data.error || res.statusText || 'Upload failed',
+          };
+        }
+        if (data.archive?.id) {
+          setPendingTimesheetArchiveRows((prev) => {
+            if (prev.some((r) => r.id === data.archive!.id)) return prev;
+            return [...prev, data.archive as TimesheetPdfArchive];
+          });
+        }
+        return { success: true };
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : 'Upload failed';
+        console.error('[uploadManualTimesheetPdfArchive]', e);
+        return { success: false, error: message };
+      }
+    },
+    [dataRootId],
   );
 
   return {
@@ -992,9 +1146,12 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
     deleteMessage,
     referenceLibrary: libraryRaw || [], 
     payPeriodSubmissions: submissionsRaw || [],
-    timesheetPdfArchive: timesheetArchiveRaw || [],
+    timesheetPdfArchive: timesheetPdfArchiveSorted,
+    timesheetPdfArchiveError: timesheetArchiveError,
+    timesheetPdfArchiveLoading: timesheetArchiveLoading,
     archiveTimesheetPdfReport,
     deleteTimesheetPdfArchive,
+    uploadManualTimesheetPdfArchive,
     allEmployees,
     integrationConfig,
     memoryBankFiles,
@@ -1508,6 +1665,7 @@ export function useLedgerData(sessionEmployeeId?: string | null) {
         {
           ...row,
           id: ref.id,
+          folder: row.folder ?? 'chief_template',
           sortOrder: typeof row.sortOrder === 'number' ? row.sortOrder : 0,
           createdAt: now,
           updatedAt: now,

@@ -11,10 +11,17 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import {
-  PlanportLedgerImportPackageSchemaV1,
   type PlanportLedgerImportPackageV1,
   mapPlanportExportToLedgerClientAndProject,
+  tryParsePlanportLedgerImport,
 } from "@/lib/handoff/planport-ledger/v1";
+import {
+  buildLedgerUpsertPatchesFromEnvelopeV2,
+  isPlanportSyncEnvelopeV2,
+  tryParsePlanportSyncEnvelopeV2,
+  type PlanportLedgerSyncEnvelopeV2,
+  type SyncDryRunReportV2,
+} from "@/lib/handoff/planport-ledger/v2";
 
 function norm(s: string | undefined | null) {
   return String(s ?? "").trim().toLowerCase();
@@ -27,6 +34,14 @@ function safeIdSegment(s: string): string {
     .replace(/[^\w\s-]/g, "")
     .replace(/[\s_-]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function omitUndefined<T extends Record<string, unknown>>(o: T): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
 }
 
 function safeFileText(file: File): Promise<string> {
@@ -49,6 +64,9 @@ export default function PlanportImportPage() {
   const [rawText, setRawText] = useState<string>("");
   const [pasteText, setPasteText] = useState<string>("");
   const [parsed, setParsed] = useState<PlanportLedgerImportPackageV1 | null>(null);
+  const [parsedV2, setParsedV2] = useState<PlanportLedgerSyncEnvelopeV2 | null>(null);
+  const [dryReportV2, setDryReportV2] = useState<SyncDryRunReportV2 | null>(null);
+  const [usedFlexibleMapping, setUsedFlexibleMapping] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [importMode, setImportMode] = useState<"create" | "update">("create");
   const [selectedClientId, setSelectedClientId] = useState<string>("");
@@ -78,23 +96,44 @@ export default function PlanportImportPage() {
     );
   }, [parsed, projects]);
 
+  const parseJsonText = (text: string) => {
+    setParseError(null);
+    const json = JSON.parse(text);
+    if (isPlanportSyncEnvelopeV2(json)) {
+      const v2 = tryParsePlanportSyncEnvelopeV2(json);
+      if (!v2.ok) {
+        setParseError(v2.error);
+        return;
+      }
+      setParsedV2(v2.data);
+      setParsed(null);
+      setDryReportV2(null);
+      setUsedFlexibleMapping(false);
+      return;
+    }
+    const res = tryParsePlanportLedgerImport(json);
+    if (!res.ok) {
+      setParseError(res.error);
+      return;
+    }
+    setParsed(res.data);
+    setParsedV2(null);
+    setDryReportV2(null);
+    setUsedFlexibleMapping(res.usedFlexibleMapping);
+  };
+
   const handleChooseFile = async (file: File | null) => {
     setParseError(null);
     setParsed(null);
+    setParsedV2(null);
+    setDryReportV2(null);
+    setUsedFlexibleMapping(false);
     setRawText("");
     if (!file) return;
     try {
       const text = await safeFileText(file);
       setRawText(text);
-      const json = JSON.parse(text);
-      const res = PlanportLedgerImportPackageSchemaV1.safeParse(json);
-      if (!res.success) {
-        setParseError(res.error.issues.map((i) => i.message).join(" "));
-        return;
-      }
-      setParsed(res.data);
-      // default: update if we can match by accessCode/email/name
-      // (computed below, after `parsed` is set)
+      parseJsonText(text);
     } catch (e) {
       setParseError(e instanceof Error ? e.message : "Invalid file.");
     }
@@ -103,6 +142,9 @@ export default function PlanportImportPage() {
   const handleParsePaste = () => {
     setParseError(null);
     setParsed(null);
+    setParsedV2(null);
+    setDryReportV2(null);
+    setUsedFlexibleMapping(false);
     setRawText("");
     const text = String(pasteText || "").trim();
     if (!text) {
@@ -110,17 +152,73 @@ export default function PlanportImportPage() {
       return;
     }
     try {
-      const json = JSON.parse(text);
-      const res = PlanportLedgerImportPackageSchemaV1.safeParse(json);
-      if (!res.success) {
-        setParseError(res.error.issues.map((i) => i.message).join(" "));
-        return;
-      }
-      setParsed(res.data);
       setRawText(text);
+      parseJsonText(text);
     } catch (e) {
       setParseError(e instanceof Error ? e.message : "Invalid JSON.");
     }
+  };
+
+  const computeV2DryRun = (): SyncDryRunReportV2 | null => {
+    if (!parsedV2) return null;
+    const exC = clients.find((c) => c.externalId === parsedV2.client.externalId) ?? null;
+    const exP = projects.find((p) => p.externalId === parsedV2.project.externalId) ?? null;
+    return buildLedgerUpsertPatchesFromEnvelopeV2(parsedV2, exC, exP);
+  };
+
+  const handleDryRunV2 = () => {
+    const rep = computeV2DryRun();
+    if (!rep) return;
+    setDryReportV2(rep);
+    toast({
+      title: "Dry run complete",
+      description: `Client: ${rep.wouldCreateClient ? "create" : "update"}; project: ${rep.wouldCreateProject ? "create" : "update"}.`,
+    });
+  };
+
+  const handleApplyV2 = () => {
+    if (!parsedV2 || !ledger.dataRootId) {
+      toast({ variant: "destructive", title: "Not ready", description: "Parse a v2 envelope first." });
+      return;
+    }
+    const rep = computeV2DryRun();
+    if (!rep) return;
+
+    const exC = clients.find((c) => c.externalId === parsedV2.client.externalId) ?? null;
+    const exP = projects.find((p) => p.externalId === parsedV2.project.externalId) ?? null;
+
+    const clientPatch = omitUndefined(rep.clientPatch as Record<string, unknown>);
+    const projectPatch = omitUndefined(rep.projectPatch as Record<string, unknown>);
+
+    let clientId = exC?.id;
+    if (!clientId) {
+      const slug =
+        safeIdSegment(parsedV2.client.externalId) || safeIdSegment(String(clientPatch.name || "client"));
+      clientId = `${slug}-${Date.now().toString(36)}`;
+      ledger.createClientWithId?.(clientId, { ...clientPatch, id: clientId } as any);
+    } else {
+      ledger.updateClient(clientId, clientPatch as any);
+    }
+
+    const projectIdExisting = exP?.id;
+    if (!projectIdExisting) {
+      const slug =
+        safeIdSegment(parsedV2.project.externalId) || safeIdSegment(String(projectPatch.name || "project"));
+      const projectId = `${slug}-${Date.now().toString(36)}`;
+      ledger.createProjectWithId?.(projectId, {
+        ...(projectPatch as object),
+        clientId,
+        id: projectId,
+      } as any);
+    } else {
+      ledger.updateProject(projectIdExisting, { ...(projectPatch as object), clientId } as any);
+    }
+
+    setDryReportV2(rep);
+    toast({
+      title: "Import complete (v2)",
+      description: "Upserted client and project by externalId.",
+    });
   };
 
   const handleImport = async () => {
@@ -189,7 +287,7 @@ export default function PlanportImportPage() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">
           <CardTitle>Import from PlanPort</CardTitle>
-          <Badge variant="outline">v1</Badge>
+          <Badge variant="outline">{parsedV2 ? "v2 sync" : "v1"}</Badge>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
@@ -201,7 +299,10 @@ export default function PlanportImportPage() {
               onChange={(e) => void handleChooseFile(e.target.files?.[0] ?? null)}
             />
             <p className="text-xs text-muted-foreground">
-              Upload the “Ledger Import File” downloaded from PlanPort.
+              Upload the official PlanPort export, v1 Ledger handoff, or a v2 sync envelope (
+              <span className="font-mono">schemaVersion: 2</span>). v1 flexible parsing still applies when{" "}
+              <span className="font-mono">exportVersion: 1</span>. See <span className="font-mono">SYNC_SCHEMA_PLAN.md</span>{" "}
+              for field rules.
             </p>
           </div>
 
@@ -229,8 +330,60 @@ export default function PlanportImportPage() {
             </Alert>
           ) : null}
 
+          {parsedV2 ? (
+            <div className="space-y-4">
+              <Alert className="border-emerald-500/30 bg-emerald-500/5">
+                <AlertTitle className="text-emerald-200">Sync envelope v2</AlertTitle>
+                <AlertDescription className="text-xs text-muted-foreground space-y-2">
+                  <p>
+                    Client <span className="font-mono text-foreground">{parsedV2.client.externalId}</span> · Project{" "}
+                    <span className="font-mono text-foreground">{parsedV2.project.externalId}</span>
+                  </p>
+                  <p>Run dry run first to see create/update and conflicts (Ledger wins on updates).</p>
+                </AlertDescription>
+              </Alert>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={handleDryRunV2}>
+                  Dry run (v2)
+                </Button>
+                <Button type="button" onClick={() => void handleApplyV2()}>
+                  Apply import (v2)
+                </Button>
+              </div>
+              {dryReportV2 ? (
+                <div className="rounded-md border border-border p-4 bg-card text-xs space-y-2 font-mono">
+                  <div>wouldCreateClient: {String(dryReportV2.wouldCreateClient)}</div>
+                  <div>wouldCreateProject: {String(dryReportV2.wouldCreateProject)}</div>
+                  {dryReportV2.clientConflicts.length ? (
+                    <div className="text-amber-200">client conflicts: {dryReportV2.clientConflicts.join(", ")}</div>
+                  ) : null}
+                  {dryReportV2.projectConflicts.length ? (
+                    <div className="text-amber-200">project conflicts: {dryReportV2.projectConflicts.join(", ")}</div>
+                  ) : null}
+                  {dryReportV2.warnings.length ? (
+                    <div className="text-muted-foreground">warnings: {dryReportV2.warnings.join(" | ")}</div>
+                  ) : null}
+                </div>
+              ) : null}
+              <details className="rounded-md border border-border p-4 bg-card">
+                <summary className="cursor-pointer text-sm font-semibold">View raw JSON</summary>
+                <pre className="mt-3 text-xs overflow-auto whitespace-pre-wrap break-words">{rawText}</pre>
+              </details>
+            </div>
+          ) : null}
+
           {parsed ? (
             <div className="space-y-4">
+              {usedFlexibleMapping ? (
+                <Alert className="border-amber-500/40 bg-amber-500/5">
+                  <AlertTitle className="text-amber-200">Flexible field mapping</AlertTitle>
+                  <AlertDescription className="text-xs text-muted-foreground">
+                    Strict PlanPort v1 shape did not validate; a normalized copy was built from common alias keys
+                    (e.g. flat <span className="font-mono">projectName</span>, <span className="font-mono">clientName</span>
+                    , root-level IDs). Review the preview below before importing.
+                  </AlertDescription>
+                </Alert>
+              ) : null}
               <div className="rounded-md border border-border p-4 bg-card">
                 <div className="flex flex-col gap-2">
                   <div className="flex flex-wrap gap-2 items-center">

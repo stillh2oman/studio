@@ -7,6 +7,8 @@ import type { SharedClientDoc, SharedProjectDoc } from './canonical-types';
 import { SHARED_SCHEMA_VERSION } from './canonical-types';
 export interface PlanportResidentialHubInput {
   id: string;
+  /** Cross-app sync id (persist on hub doc when created). */
+  externalId?: string | null;
   husbandName?: string | null;
   wifeName?: string | null;
   accessCode?: string | null;
@@ -24,6 +26,7 @@ export interface PlanportResidentialHubInput {
 
 export interface PlanportGcHubInput {
   id: string;
+  externalId?: string | null;
   name?: string;
   accessCode?: string | null;
   logoUrl?: string | null;
@@ -37,6 +40,7 @@ export interface PlanportGcHubInput {
 
 export interface PlanportProjectInput {
   id: string;
+  externalId?: string | null;
   name?: string;
   ownerName?: string | null;
   address?: string | null;
@@ -67,6 +71,7 @@ export function mapPlanportResidentialHubToCanonical(
   return {
     schemaVersion: SHARED_SCHEMA_VERSION,
     firmId,
+    externalId: hub.externalId ? String(hub.externalId) : undefined,
     accountKind: 'residential',
     displayName: display,
     primaryEmail: hub.email || undefined,
@@ -103,6 +108,7 @@ export function mapPlanportGcHubToCanonical(firmId: string, hub: PlanportGcHubIn
   return {
     schemaVersion: SHARED_SCHEMA_VERSION,
     firmId,
+    externalId: hub.externalId ? String(hub.externalId) : undefined,
     accountKind: 'contractor',
     displayName: hub.name || 'Unnamed GC',
     billingEmail: hub.billingEmail || undefined,
@@ -141,6 +147,7 @@ export function mapPlanportProjectToCanonical(
   return {
     schemaVersion: SHARED_SCHEMA_VERSION,
     firmId,
+    externalId: proj.externalId ? String(proj.externalId) : undefined,
     projectName: proj.name || 'Untitled',
     status: proj.status || undefined,
     address: proj.address || undefined,

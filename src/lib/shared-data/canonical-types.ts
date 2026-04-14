@@ -19,6 +19,10 @@ export interface SourceRef {
 export interface SharedClientDoc {
   schemaVersion: typeof SHARED_SCHEMA_VERSION;
   firmId: string;
+  /**
+   * Cross-app sync key (UUID or migration-generated stable id). Never use Firestore doc ids as the sync key.
+   */
+  externalId?: string;
   accountKind: SharedAccountKind;
   displayName: string;
   legalName?: string;
@@ -50,6 +54,8 @@ export interface SharedClientDoc {
 export interface SharedProjectDoc {
   schemaVersion: typeof SHARED_SCHEMA_VERSION;
   firmId: string;
+  /** Cross-app sync key for the project entity. */
+  externalId?: string;
   projectName: string;
   projectCode?: string;
   status?: string;
@@ -72,3 +78,12 @@ export interface SharedProjectDoc {
   createdBy?: string;
   updatedBy?: string;
 }
+
+/** Alias: Ledger-led canonical shape for shared client data (sync + optional root `clients` collection). */
+export type CanonicalClient = SharedClientDoc;
+
+/** Alias: Ledger-led canonical shape for shared project data. */
+export type CanonicalProject = SharedProjectDoc;
+
+/** JSON import/export package schema version (cross-app handoff). Distinct from `SHARED_SCHEMA_VERSION` on stored canonical docs. */
+export const SYNC_TRANSFER_SCHEMA_VERSION = 2 as const;
