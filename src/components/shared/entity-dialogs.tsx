@@ -125,15 +125,14 @@ export function ClientDialog({ open, onOpenChange, onSave, initialData, clients,
   }, [initialData, open]);
 
   useEffect(() => {
-    if (!selectedProjectId) return;
+    if (!initialData || !selectedProjectId) return;
     const project = (projects || []).find(p => p.id === selectedProjectId);
     if (!project) return;
     setInitialProjectName(project.name || '');
     setAssociatedProjectIds(prev => (prev.includes(project.id) ? prev : [...prev, project.id]));
     setProjectAddress(project.address || '');
     setProjectRenderingUrl(project.renderingUrl || '');
-    if (!assignedContractorId && project.contractorId) setAssignedContractorId(project.contractorId);
-  }, [selectedProjectId, projects, assignedContractorId]);
+  }, [initialData, selectedProjectId, projects]);
 
   const handleAssociatedProjectsChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const values = Array.from(e.target.selectedOptions).map(o => o.value);
@@ -234,7 +233,7 @@ export function ClientDialog({ open, onOpenChange, onSave, initialData, clients,
         <DialogHeader className="p-6 bg-muted/20 border-b shrink-0">
           <div className="flex justify-between items-center mr-8">
             <DialogTitle className="font-headline text-2xl">
-              {initialData ? 'Edit Client Onboarding' : 'New Client Onboarding'}
+              {initialData ? 'Edit Client' : 'New Client'}
             </DialogTitle>
             {allowContractorToggle ? (
               <div className="flex items-center gap-2">
@@ -357,85 +356,94 @@ export function ClientDialog({ open, onOpenChange, onSave, initialData, clients,
                       ))}
                     </div>
                   </section>
-                  <section className="space-y-4">
-                    <Label className="text-[10px] uppercase font-black tracking-[0.2em] text-muted-foreground">Initial Project Details</Label>
-                    <div className="space-y-2">
-                      <Label>Project Name</Label>
-                      <select
-                        className="flex h-11 w-full rounded-md border bg-background px-3 text-sm font-bold shadow-inner focus:ring-2 focus:ring-primary outline-none"
-                        value={selectedProjectId}
-                        onChange={(e) => setSelectedProjectId(e.target.value)}
-                      >
-                        <option value="">Select from Project Database...</option>
-                        {projects
-                          .slice()
-                          .sort((a, b) => a.name.localeCompare(b.name))
-                          .map((p) => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
-                      </select>
+                  {!initialData ? (
+                    <div className="rounded-lg border border-border/60 bg-muted/15 px-4 py-3 text-sm text-muted-foreground leading-relaxed">
+                      <p className="font-semibold text-foreground mb-1">Projects & contractors</p>
+                      <p>
+                        Add projects from the main command center: use{" "}
+                        <span className="font-semibold text-foreground">Register New Architectural Project</span>. There
+                        you choose the <span className="font-semibold text-foreground">client</span> and optional{" "}
+                        <span className="font-semibold text-foreground">contractor</span> for each project—no project
+                        details are required here.
+                      </p>
                     </div>
-                    <div className="space-y-2">
-                      <Label>Associated Projects (Multiple)</Label>
-                      <select
-                        multiple
-                        className="flex min-h-[120px] w-full rounded-md border bg-background px-3 py-2 text-sm font-bold shadow-inner focus:ring-2 focus:ring-primary outline-none"
-                        value={associatedProjectIds}
-                        onChange={handleAssociatedProjectsChange}
-                      >
-                        {projects
-                          .slice()
-                          .sort((a, b) => a.name.localeCompare(b.name))
-                          .map((p) => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
-                      </select>
-                      <p className="text-[10px] text-muted-foreground">Hold Ctrl (Windows) to select multiple projects.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Project Address</Label>
-                      <div className="relative">
-                        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          className="h-11 pl-10"
-                          value={projectAddress}
-                          onChange={e => setProjectAddress(e.target.value)}
-                          placeholder="123 Maple St, City, State"
-                          readOnly
-                        />
+                  ) : (
+                    <section className="space-y-4">
+                      <Label className="text-[10px] uppercase font-black tracking-[0.2em] text-muted-foreground">
+                        Linked projects (optional)
+                      </Label>
+                      <p className="text-[10px] text-muted-foreground">
+                        Contractor for a job is set per project in &quot;Register New Architectural Project&quot;, not on
+                        the client card.
+                      </p>
+                      <div className="space-y-2">
+                        <Label>Project Name</Label>
+                        <select
+                          className="flex h-11 w-full rounded-md border bg-background px-3 text-sm font-bold shadow-inner focus:ring-2 focus:ring-primary outline-none"
+                          value={selectedProjectId}
+                          onChange={(e) => setSelectedProjectId(e.target.value)}
+                        >
+                          <option value="">Select from Project Database...</option>
+                          {projects
+                            .slice()
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
+                            ))}
+                        </select>
                       </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Project Rendering URL (Optional)</Label>
-                      <div className="relative">
-                        <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          className="h-11 pl-10"
-                          value={projectRenderingUrl}
-                          onChange={e => setProjectRenderingUrl(e.target.value)}
-                          placeholder="Dropbox link to rendering image"
-                          readOnly
-                        />
+                      <div className="space-y-2">
+                        <Label>Associated Projects (Multiple)</Label>
+                        <select
+                          multiple
+                          className="flex min-h-[120px] w-full rounded-md border bg-background px-3 py-2 text-sm font-bold shadow-inner focus:ring-2 focus:ring-primary outline-none"
+                          value={associatedProjectIds}
+                          onChange={handleAssociatedProjectsChange}
+                        >
+                          {projects
+                            .slice()
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
+                            ))}
+                        </select>
+                        <p className="text-[10px] text-muted-foreground">Hold Ctrl (Windows) to select multiple projects.</p>
                       </div>
-                      <p className="text-[10px] text-muted-foreground">If left blank, a default Designer&apos;s Ink image can be used.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Assigned General Contractor</Label>
-                      <select
-                        className="flex h-10 w-full rounded-md border bg-background px-3 text-sm font-bold shadow-inner focus:ring-2 focus:ring-primary outline-none"
-                        value={assignedContractorId}
-                        onChange={(e) => setAssignedContractorId(e.target.value)}
-                      >
-                        <option value="">Owner-Builder / No GC</option>
-                        {contractors
-                          .slice()
-                          .sort((a, b) => a.companyName.localeCompare(b.companyName))
-                          .map((c) => (
-                            <option key={c.id} value={c.id}>{c.companyName}</option>
-                          ))}
-                      </select>
-                    </div>
-                  </section>
+                      <div className="space-y-2">
+                        <Label>Project Address</Label>
+                        <div className="relative">
+                          <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            className="h-11 pl-10"
+                            value={projectAddress}
+                            onChange={(e) => setProjectAddress(e.target.value)}
+                            placeholder="123 Maple St, City, State"
+                            readOnly
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Project Rendering URL (Optional)</Label>
+                        <div className="relative">
+                          <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                          <Input
+                            className="h-11 pl-10"
+                            value={projectRenderingUrl}
+                            onChange={(e) => setProjectRenderingUrl(e.target.value)}
+                            placeholder="Dropbox link to rendering image"
+                            readOnly
+                          />
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          If left blank, a default Designer&apos;s Ink image can be used.
+                        </p>
+                      </div>
+                    </section>
+                  )}
                   <Label className="text-[10px] uppercase font-black tracking-[0.2em] text-muted-foreground">Hub Access</Label>
                   <div className="flex items-center justify-between p-3 border border-border/40 rounded-xl">
                     <div>
