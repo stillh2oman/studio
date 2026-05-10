@@ -8,6 +8,7 @@ export const NOTIFICATION_PREFERENCES_DOC = "settings" as const;
 
 export type NotificationPreferenceKey =
   | "newMessage"
+  | "hubPunchlistReview"
   | "documentReady"
   | "approvalRequest"
   | "invoiceIssued"
@@ -16,6 +17,7 @@ export type NotificationPreferenceKey =
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: Record<NotificationPreferenceKey, boolean> = {
   newMessage: true,
+  hubPunchlistReview: true,
   documentReady: true,
   approvalRequest: true,
   invoiceIssued: true,

@@ -19,6 +19,7 @@ import { ArrowLeft } from "lucide-react";
 
 const ROWS: { key: NotificationPreferenceKey; label: string }[] = [
   { key: "newMessage", label: "New messages" },
+  { key: "hubPunchlistReview", label: "Punchlist & review threads" },
   { key: "documentReady", label: "New shared documents" },
   { key: "approvalRequest", label: "Approvals & agreements" },
   { key: "invoiceIssued", label: "Invoices & billing" },
